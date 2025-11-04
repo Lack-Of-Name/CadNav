@@ -116,6 +116,14 @@ const MapPage = () => {
     [clampOverlay]
   );
 
+  const openCompassOverlay = useCallback(() => {
+    openOverlay('compass');
+  }, [openOverlay]);
+
+  const openRouteOverlay = useCallback(() => {
+    openOverlay('checkpoints');
+  }, [openOverlay]);
+
   const handleOverlayResizeMove = useCallback((event) => {
     if (!dragStateRef.current) return;
     const { startY, startHeight } = dragStateRef.current;
@@ -165,6 +173,10 @@ const MapPage = () => {
     [OVERLAY_MAX_HEIGHT, clampOverlay, overlayHeight]
   );
 
+  useEffect(() => {
+    handleEnableLocation();
+  }, [handleEnableLocation]);
+
   return (
     <div className="relative h-screen w-screen bg-slate-950 text-slate-100">
       <MapView
@@ -179,6 +191,8 @@ const MapPage = () => {
         baseLayer={baseLayer}
         onBaseLayerChange={setBaseLayer}
         onToggleMenu={toggleMenu}
+        onOpenCompass={openCompassOverlay}
+        onOpenRoute={openRouteOverlay}
         isMenuOpen={isMenuOpen}
       />
 
@@ -335,6 +349,17 @@ const MapPage = () => {
               >
                 Grid
                 <span className="text-[10px] text-slate-400">Conversions</span>
+              </button>
+              <button
+                type="button"
+                className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 font-semibold transition hover:border-sky-500 hover:text-sky-100"
+                onClick={() => {
+                  handleEnableLocation();
+                  setIsMenuOpen(false);
+                }}
+              >
+                GPS
+                <span className="text-[10px] text-slate-400">{locationEnabled ? 'Active' : 'Request fix'}</span>
               </button>
             </div>
             <p className="mt-3 text-[11px] text-slate-400">

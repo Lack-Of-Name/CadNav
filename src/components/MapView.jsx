@@ -4,6 +4,45 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useCheckpoints } from '../hooks/useCheckpoints.js';
 
+const toolbarIconSources = import.meta.glob('../../assets/*.png', {
+  eager: true,
+  import: 'default'
+});
+
+const resolveToolbarIcon = (name) => toolbarIconSources[`../../assets/${name}.png`] ?? null;
+
+const ToolbarButton = ({
+  iconName,
+  label,
+  onClick,
+  title,
+  isActive = false,
+  disabled = false
+}) => {
+  const iconSrc = resolveToolbarIcon(iconName);
+  const activeStyles = isActive
+    ? 'border-sky-400 bg-sky-400/90 text-slate-900 shadow-sky-500/40'
+    : 'border-slate-800 bg-slate-950/85 text-slate-200 hover:border-sky-400 hover:bg-slate-900/80';
+  const disabledStyles = disabled ? 'opacity-60 pointer-events-none' : '';
+
+  return (
+    <button
+      type="button"
+      className={`flex h-12 w-12 items-center justify-center rounded-2xl border text-[11px] font-semibold shadow-lg shadow-slate-950/80 transition ${activeStyles} ${disabledStyles}`}
+      onClick={onClick}
+      title={title ?? label}
+      aria-label={label}
+      disabled={disabled}
+    >
+      {iconSrc ? (
+        <img src={iconSrc} alt="" className="h-5 w-5 object-contain" aria-hidden="true" />
+      ) : (
+        <span className="uppercase tracking-wide">{label}</span>
+      )}
+    </button>
+  );
+};
+
 const defaultPosition = [51.505, 10];
 
 const tileProviders = {
@@ -120,6 +159,8 @@ const MapView = ({
   baseLayer = 'street',
   onBaseLayerChange,
   onToggleMenu,
+  onOpenCompass,
+  onOpenRoute,
   isMenuOpen = false
 }) => {
   const {
@@ -141,8 +182,19 @@ const MapView = ({
 
   const tileProvider = tileProviders[baseLayer] ?? tileProviders.street;
 
-  const toolbarOffsetStyle = useMemo(
-    () => ({ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 2.5rem)' }),
+  const toolbarPositionStyle = useMemo(
+    () => ({
+      top: 'calc(env(safe-area-inset-top, 0px) + 1rem)',
+      right: 'calc(env(safe-area-inset-right, 0px) + 1rem)'
+    }),
+    []
+  );
+
+  const layerControlsPositionStyle = useMemo(
+    () => ({
+      bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
+      right: 'calc(env(safe-area-inset-right, 0px) + 1rem)'
+    }),
     []
   );
 
@@ -185,10 +237,51 @@ const MapView = ({
 
   const recenterMap = useCallback(() => {
     if (!mapRef.current || !userLocation) return;
-    mapRef.current.flyTo([userLocation.lat, userLocation.lng], Math.max(mapRef.current.getZoom(), 16), {
-      animate: true
+
+    const map = mapRef.current;
+    const anchors = [];
+
+    if (start?.position) anchors.push(start.position);
+    if (end?.position) anchors.push(end.position);
+    checkpoints.forEach((checkpoint) => {
+      if (checkpoint?.position) {
+        anchors.push(checkpoint.position);
+      }
     });
-  }, [userLocation]);
+
+    if (anchors.length === 0) {
+      map.flyTo(
+        [userLocation.lat, userLocation.lng],
+        Math.max(map.getZoom(), 16),
+        { animate: true }
+      );
+      hasCenteredRef.current = true;
+      return;
+    }
+
+    const clampLat = (lat) => Math.max(-89.999, Math.min(89.999, lat));
+    const wrapLng = (lng) => ((lng + 180) % 360 + 360) % 360 - 180;
+
+    const symmetricPoints = anchors.flatMap((point) => {
+      const mirrorLat = clampLat(2 * userLocation.lat - point.lat);
+      const mirrorLng = wrapLng(2 * userLocation.lng - point.lng);
+      return [
+        [point.lat, point.lng],
+        [mirrorLat, mirrorLng]
+      ];
+    });
+
+    symmetricPoints.push([userLocation.lat, userLocation.lng]);
+
+    const bounds = L.latLngBounds(symmetricPoints);
+
+    map.fitBounds(bounds, {
+      animate: true,
+      padding: [60, 60],
+      maxZoom: 18
+    });
+    hasCenteredRef.current = true;
+  }, [checkpoints, end, start, userLocation]);
 
   useEffect(() => {
     return () => {
@@ -210,6 +303,18 @@ const MapView = ({
       onToggleMenu();
     }
   }, [onToggleMenu]);
+
+  const handleOpenCompass = useCallback(() => {
+    if (typeof onOpenCompass === 'function') {
+      onOpenCompass();
+    }
+  }, [onOpenCompass]);
+
+  const handleOpenRoute = useCallback(() => {
+    if (typeof onOpenRoute === 'function') {
+      onOpenRoute();
+    }
+  }, [onOpenRoute]);
 
   const handleZoomToLocation = useCallback(() => {
     if (userLocation) {
@@ -417,94 +522,90 @@ const MapView = ({
       )}
 
       <div
-        className="pointer-events-none absolute inset-x-0 z-[990] flex flex-col items-center gap-2"
-        style={toolbarOffsetStyle}
+        className="pointer-events-none absolute z-[990] flex flex-col items-end gap-3"
+        style={toolbarPositionStyle}
       >
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/92 px-3 py-1.5 text-[11px] font-semibold text-slate-100 shadow-lg shadow-slate-950/80">
-          <button
-            type="button"
-            className={`flex items-center gap-1 rounded-full border px-3 py-1 transition ${
-              isMenuOpen
-                ? 'border-sky-400 bg-sky-400 text-slate-900 shadow-sm shadow-sky-500/40'
-                : 'border-slate-700 bg-slate-900/85 text-slate-200 hover:border-sky-500 hover:bg-slate-800'
-            }`}
+        <div className="pointer-events-auto flex flex-col gap-2 rounded-3xl border border-slate-800 bg-slate-950/92 p-2 shadow-xl shadow-slate-950/80">
+          <ToolbarButton
+            iconName="menu"
+            label="Menu"
             onClick={handleToggleMenu}
             title="Toggle navigation menu"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M4 7h16a1 1 0 0 0 0-2H4a1 1 0 0 0 0 2Zm16 3H4a1 1 0 0 0 0 2h16a1 1 0 0 0 0-2Zm0 5H4a1 1 0 0 0 0 2h16a1 1 0 0 0 0-2Z" />
-            </svg>
-            <span>Menu</span>
-          </button>
-          <button
-            type="button"
-            className={`rounded-full border px-3 py-1 transition ${
-              baseLayer === 'street'
-                ? 'border-sky-400 bg-sky-400 text-slate-900 shadow-sm shadow-sky-500/40'
-                : 'border-slate-700 bg-slate-900/85 text-slate-200 hover:border-sky-500 hover:bg-slate-800'
-            }`}
-            onClick={() => handleBaseLayerToggle('street')}
-            title="Switch to map view"
-          >
-            Map
-          </button>
-          <button
-            type="button"
-            className={`rounded-full border px-3 py-1 transition ${
-              baseLayer === 'satellite'
-                ? 'border-violet-400 bg-violet-400 text-slate-900 shadow-sm shadow-violet-500/40'
-                : 'border-slate-700 bg-slate-900/85 text-slate-200 hover:border-sky-500 hover:bg-slate-800'
-            }`}
-            onClick={() => handleBaseLayerToggle('satellite')}
-            title="Switch to satellite view"
-          >
-            Sat
-          </button>
-          <button
-            type="button"
-            className={`rounded-full border px-3 py-1 transition ${
-              locationEnabled
-                ? 'border-emerald-300 bg-emerald-400 text-slate-900 shadow-sm shadow-emerald-500/40'
-                : 'border-emerald-500 bg-emerald-600 text-emerald-50 hover:bg-emerald-500/90'
-            }`}
-            onClick={handleEnableLocation}
-            title={locationEnabled ? 'Retry GPS fix' : 'Enable GPS'}
-          >
-            GPS
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-sky-400 bg-sky-400 px-3 py-1 text-slate-900 shadow-sm shadow-sky-400/40 transition hover:bg-sky-300"
+            isActive={isMenuOpen}
+          />
+          <ToolbarButton
+            iconName="compass"
+            label="Compass"
+            onClick={handleOpenCompass}
+            title="Open compass overlay"
+            isActive={false}
+          />
+          <ToolbarButton
+            iconName="route"
+            label="Route"
+            onClick={handleOpenRoute}
+            title="Open route tools"
+            isActive={false}
+          />
+          <ToolbarButton
+            iconName="zoom"
+            label="Zoom"
             onClick={handleZoomToLocation}
             title="Zoom to current location"
-          >
-            Zoom
-          </button>
-          <button
-            type="button"
-            className={`rounded-full border px-3 py-1 transition ${
-              baseLayer !== 'satellite' || isCaching
-                ? 'border-slate-700 bg-slate-800 text-slate-400 opacity-70'
-                : 'border-amber-400 bg-amber-400 text-slate-900 shadow-sm shadow-amber-500/40 hover:bg-amber-300'
-            }`}
-            onClick={handlePrefetchTiles}
-            disabled={baseLayer !== 'satellite' || isCaching}
-            title="Cache nearby satellite tiles"
-          >
-            {isCaching ? 'Caching…' : 'Cache'}
-          </button>
+          />
         </div>
         {(isRequestingLocation || (locationEnabled && !hasLocationFix)) && (
           <div className="pointer-events-none rounded-full border border-slate-800 bg-slate-950/85 px-3 py-1 text-[10px] font-semibold text-slate-300 shadow-md shadow-slate-950/60">
             {isRequestingLocation ? 'Getting location…' : 'GPS active, awaiting fix'}
           </div>
         )}
+      </div>
+
+      <div
+        className="pointer-events-none absolute z-[980] flex flex-col items-end gap-2"
+        style={layerControlsPositionStyle}
+      >
+        <div className="pointer-events-auto flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-950/92 p-2 shadow-lg shadow-slate-950/80">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`rounded-xl border px-3 py-1 text-[11px] font-semibold transition ${
+                baseLayer === 'street'
+                  ? 'border-sky-400 bg-sky-400/90 text-slate-900 shadow-sm shadow-sky-500/40'
+                  : 'border-slate-700 bg-slate-900/85 text-slate-200 hover:border-sky-400 hover:bg-slate-900/70'
+              }`}
+              onClick={() => handleBaseLayerToggle('street')}
+              title="Switch to map view"
+            >
+              Map
+            </button>
+            <button
+              type="button"
+              className={`rounded-xl border px-3 py-1 text-[11px] font-semibold transition ${
+                baseLayer === 'satellite'
+                  ? 'border-violet-400 bg-violet-400/90 text-slate-900 shadow-sm shadow-violet-500/40'
+                  : 'border-slate-700 bg-slate-900/85 text-slate-200 hover:border-sky-400 hover:bg-slate-900/70'
+              }`}
+              onClick={() => handleBaseLayerToggle('satellite')}
+              title="Switch to satellite view"
+            >
+              Sat
+            </button>
+          </div>
+          <button
+            type="button"
+            className={`rounded-xl border px-3 py-1 text-[11px] font-semibold transition ${
+              baseLayer !== 'satellite' || isCaching
+                ? 'border-slate-700 bg-slate-800 text-slate-400 opacity-70'
+                : 'border-amber-400 bg-amber-400/90 text-slate-900 shadow-sm shadow-amber-500/40 hover:bg-amber-300'
+            }`}
+            onClick={handlePrefetchTiles}
+            disabled={baseLayer !== 'satellite' || isCaching}
+            title="Cache nearby satellite tiles"
+          >
+            {isCaching ? 'Caching…' : 'Cache imagery'}
+          </button>
+        </div>
       </div>
 
       {selectedId && (
