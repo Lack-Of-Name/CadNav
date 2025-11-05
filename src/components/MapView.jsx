@@ -1435,7 +1435,7 @@ const MapView = ({
                       <div>
                         <p className="text-[12px] font-semibold leading-tight">Share this route</p>
                         <p className={themeStyles.layerOptionDescription}>
-                          Jump into the share view to copy or import a route code.
+                          switch to the share view to copy or import a route.
                         </p>
                       </div>
                       <button
