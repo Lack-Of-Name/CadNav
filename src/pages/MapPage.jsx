@@ -128,21 +128,32 @@ const MapPage = () => {
   }, [openOverlay]);
 
   const handleOverlayResizeMove = useCallback((event) => {
-    if (!dragStateRef.current) return;
-    const { startY, startHeight } = dragStateRef.current;
+    const state = dragStateRef.current;
+    if (!state) return;
+    const { startY, startHeight } = state;
     if (window.innerHeight === 0) return;
     const deltaRatio = (startY - event.clientY) / window.innerHeight;
+    const pixelDelta = Math.abs(startY - event.clientY);
+    if (!state.moved && pixelDelta > 6) {
+      state.moved = true;
+    }
     setOverlayHeight(clampOverlay(startHeight + deltaRatio));
   }, [clampOverlay]);
 
   const handleOverlayResizeEnd = useCallback(() => {
-    if (dragStateRef.current?.target && dragStateRef.current.pointerId != null) {
-      dragStateRef.current.target.releasePointerCapture?.(dragStateRef.current.pointerId);
-    }
-    dragStateRef.current = null;
-    window.removeEventListener('pointermove', handleOverlayResizeMove);
-    window.removeEventListener('pointerup', handleOverlayResizeEnd);
-  }, [handleOverlayResizeMove]);
+      const state = dragStateRef.current;
+      if (state?.target && state.pointerId != null) {
+        state.target.releasePointerCapture?.(state.pointerId);
+      }
+      dragStateRef.current = null;
+      window.removeEventListener('pointermove', handleOverlayResizeMove);
+      window.removeEventListener('pointerup', handleOverlayResizeEnd);
+      if (state && !state.moved && state.overlayId) {
+        setActiveOverlay((current) => (current === state.overlayId ? null : current));
+      }
+    },
+    [handleOverlayResizeMove, setActiveOverlay]
+  );
 
   const handleOverlayResizeStart = useCallback(
     (event) => {
@@ -150,11 +161,14 @@ const MapPage = () => {
       event.preventDefault();
       const pointerId = event.pointerId;
       const clientY = event.clientY;
+      const overlayId = event.currentTarget.dataset.overlayId ?? null;
       dragStateRef.current = {
         startY: clientY,
         startHeight: overlayHeight,
         pointerId,
-        target: event.currentTarget
+        target: event.currentTarget,
+        overlayId,
+        moved: false
       };
       event.currentTarget.setPointerCapture?.(pointerId);
       window.addEventListener('pointermove', handleOverlayResizeMove, { passive: true });
@@ -235,28 +249,20 @@ const MapPage = () => {
           className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950/80 md:bottom-6 md:left-auto md:right-6 md:max-w-sm md:rounded-2xl"
           style={overlaySheetStyle}
         >
-          <div className="mb-3 flex justify-center md:hidden">
+          <div className="mb-3 flex justify-center">
             <button
               type="button"
+              data-overlay-id="compass"
               className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800 touch-none"
-              aria-label="Resize panel"
+              aria-label="Drag to resize or tap to close panel"
               onPointerDown={handleOverlayResizeStart}
             >
               <span className="block h-2 w-16 rounded-full bg-slate-500 transition group-active:bg-slate-300" />
             </button>
           </div>
-          <div className="mb-2 flex items-center justify-between text-[11px]">
-            <div className="text-left">
-              <p className="font-semibold uppercase tracking-wide text-slate-500">Compass</p>
-              <p className="text-xs text-slate-400">Heading & bearings</p>
-            </div>
-            <button
-              type="button"
-              className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-200 hover:border-sky-500 hover:text-sky-200"
-              onClick={() => setActiveOverlay(null)}
-            >
-              Close
-            </button>
+          <div className="mb-2 text-left text-[11px]">
+            <p className="font-semibold uppercase tracking-wide text-slate-500">Compass</p>
+            <p className="text-xs text-slate-400">Heading & bearings</p>
           </div>
           <Compass
             heading={heading}
@@ -284,28 +290,20 @@ const MapPage = () => {
           className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950/80 md:left-6 md:right-auto md:top-6 md:max-w-xs md:rounded-2xl md:rounded-bl-none md:rounded-br-xl"
           style={overlaySheetStyle}
         >
-          <div className="mb-3 flex justify-center md:hidden">
+          <div className="mb-3 flex justify-center">
             <button
               type="button"
+              data-overlay-id="checkpoints"
               className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800 touch-none"
-              aria-label="Resize panel"
+              aria-label="Drag to resize or tap to close panel"
               onPointerDown={handleOverlayResizeStart}
             >
               <span className="block h-2 w-16 rounded-full bg-slate-500 transition group-active:bg-slate-300" />
             </button>
           </div>
-          <div className="mb-2 flex items-center justify-between text-[11px]">
-            <div className="text-left">
-              <p className="font-semibold uppercase tracking-wide text-slate-500">Route tools</p>
-              <p className="text-xs text-slate-400">Manage checkpoints</p>
-            </div>
-            <button
-              type="button"
-              className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-200 hover:border-sky-500 hover:text-sky-200"
-              onClick={() => setActiveOverlay(null)}
-            >
-              Close
-            </button>
+          <div className="mb-2 text-left text-[11px]">
+            <p className="font-semibold uppercase tracking-wide text-slate-500">Route tools</p>
+            <p className="text-xs text-slate-400">Manage checkpoints</p>
           </div>
           <CheckpointList />
         </div>
@@ -316,28 +314,20 @@ const MapPage = () => {
           className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950/80 md:left-auto md:right-6 md:top-6 md:max-w-md md:rounded-2xl"
           style={overlaySheetStyle}
         >
-          <div className="mb-3 flex justify-center md:hidden">
+          <div className="mb-3 flex justify-center">
             <button
               type="button"
+              data-overlay-id="grid"
               className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800 touch-none"
-              aria-label="Resize panel"
+              aria-label="Drag to resize or tap to close panel"
               onPointerDown={handleOverlayResizeStart}
             >
               <span className="block h-2 w-16 rounded-full bg-slate-500 transition group-active:bg-slate-300" />
             </button>
           </div>
-          <div className="mb-2 flex items-center justify-between text-[11px]">
-            <div className="text-left">
-              <p className="font-semibold uppercase tracking-wide text-slate-500">Grid tools</p>
-              <p className="text-xs text-slate-400">References & bearings</p>
-            </div>
-            <button
-              type="button"
-              className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-200 hover:border-sky-500 hover:text-sky-200"
-              onClick={() => setActiveOverlay(null)}
-            >
-              Close
-            </button>
+          <div className="mb-2 text-left text-[11px]">
+            <p className="font-semibold uppercase tracking-wide text-slate-500">Grid tools</p>
+            <p className="text-xs text-slate-400">References & bearings</p>
           </div>
           <GridTools userLocation={geolocation} selectedPosition={selectedPosition} />
         </div>

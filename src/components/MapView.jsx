@@ -339,7 +339,8 @@ const MapView = ({
     selectCheckpoint,
     updateCheckpoint,
     setPlacementMode,
-    toggleConnectMode
+    toggleConnectMode,
+    placementMode
   } = useCheckpoints();
   const mapRef = useRef(null);
   const hasCenteredRef = useRef(false);
@@ -376,6 +377,54 @@ const MapView = ({
     }),
     []
   );
+
+  const placementLabel = useMemo(() => {
+    if (!placementMode) return null;
+    const mode =
+      typeof placementMode === 'string'
+        ? { type: placementMode }
+        : placementMode;
+    if (!mode?.type) return null;
+    if (mode.type === 'start') return 'Start point';
+    if (mode.type === 'end') return 'End point';
+    if (mode.type === 'checkpoint') {
+      if (typeof mode.insertIndex === 'number') {
+        return `Checkpoint (position ${mode.insertIndex + 1})`;
+      }
+      return 'Checkpoint';
+    }
+    return null;
+  }, [placementMode]);
+
+  const statusMessages = useMemo(() => {
+    const messages = [];
+    if (placementLabel) {
+      messages.push({
+        key: 'placement',
+        text: `Currently placing: ${placementLabel}`,
+        tone: 'emerald'
+      });
+    }
+    if (selectedId) {
+      let selectedText = 'Selected: Checkpoint';
+      if (selectedId === 'start') {
+        selectedText = 'Selected: Start';
+      } else if (selectedId === 'end') {
+        selectedText = 'Selected: End';
+      } else {
+        const checkpointIndex = checkpoints.findIndex((checkpoint) => checkpoint.id === selectedId);
+        if (checkpointIndex >= 0) {
+          selectedText = `Selected: Checkpoint ${checkpointIndex + 1}`;
+        }
+      }
+      messages.push({
+        key: 'selected',
+        text: selectedText,
+        tone: 'sky'
+      });
+    }
+    return messages;
+  }, [placementLabel, selectedId, checkpoints]);
 
   const showCacheStatus = useCallback(
     (message, tone = 'info', duration = 4000) => {
@@ -1073,9 +1122,22 @@ const MapView = ({
         </div>
       )}
 
-      {selectedId && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 w-64 -translate-x-1/2 rounded-lg bg-slate-900 p-3 text-center text-sm font-semibold text-sky-200 shadow-lg shadow-slate-950">
-          Selected: {selectedId === 'start' ? 'Start' : selectedId === 'end' ? 'End' : 'Checkpoint'}
+      {statusMessages.length > 0 && (
+        <div className="pointer-events-none absolute bottom-4 left-1/2 flex w-[min(90vw,18rem)] -translate-x-1/2 flex-col gap-2">
+          {statusMessages.map((message) => {
+            const toneClass =
+              message.tone === 'emerald'
+                ? 'border-emerald-500 text-emerald-100'
+                : 'border-sky-500 text-sky-200';
+            return (
+              <div
+                key={message.key}
+                className={`rounded-lg border bg-slate-950 p-3 text-center text-sm font-semibold shadow-lg shadow-slate-950 ${toneClass}`}
+              >
+                {message.text}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

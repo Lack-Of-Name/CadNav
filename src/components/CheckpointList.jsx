@@ -199,21 +199,6 @@ const CheckpointList = () => {
         </button>
       </div>
 
-      {placementType && (
-        <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-xs text-slate-200">
-          <span className="font-semibold uppercase tracking-wide text-slate-400">
-            Currently placing:
-          </span>{" "}
-          {placementType === "start"
-            ? "Start point"
-            : placementType === "end"
-              ? "End point"
-              : placementInsertIndex != null
-                ? `Checkpoint at position ${placementInsertIndex + 1}`
-                : "Checkpoint"}
-        </div>
-      )}
-
       <ul className="space-y-2 text-sm text-slate-200">
         {entries.length === 0 && (
           <li className="text-xs text-slate-500">

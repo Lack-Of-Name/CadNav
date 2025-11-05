@@ -100,9 +100,8 @@ const Compass = ({
   };
 
   const hasTargetBearing = bearing != null && heading != null;
-  const pointerRotation = hasTargetBearing ? relativeBearing ?? 0 : 0;
-  const headingRotation = heading ?? 0;
-  const showHeading = heading != null;
+  const pointerRotation = hasTargetBearing ? relativeBearing ?? 0 : null;
+  const northRotation = heading != null ? ((360 - heading) % 360) : null;
   const compassDisabled = needsPermission || !isSupported;
   const containerToneClass = compassDisabled
     ? 'border border-rose-500 text-rose-200'
@@ -110,7 +109,6 @@ const Compass = ({
   const compassCircleClass = compassDisabled
     ? 'border-rose-500 bg-slate-800'
     : 'border-sky-500 bg-slate-950';
-  const pointerOpacityClass = hasTargetBearing ? 'opacity-100' : 'opacity-0';
 
   return (
     <div className={`flex flex-col items-center gap-4 rounded-2xl bg-slate-900 p-5 text-center shadow-lg shadow-slate-950 ${containerToneClass}`}>
@@ -149,35 +147,37 @@ const Compass = ({
         <span className="absolute top-3 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-white" aria-hidden="true">
           N
         </span>
-        <div className="absolute left-1/2 top-4 bottom-4 w-px -translate-x-1/2 rounded-full bg-white" aria-hidden="true" />
-        <div
-          className={`pointer-events-none absolute left-1/2 top-1/2 h-32 w-32 transition-opacity duration-200 ${showHeading ? 'opacity-100' : 'opacity-0'}`}
-          style={{
-            transform: `translate(-50%, -50%) rotate(${headingRotation}deg)`,
-            transformOrigin: '50% 50%'
-          }}
-          aria-hidden="true"
-        >
-          <div className="mx-auto h-14 w-[3px] rounded-full bg-sky-400" />
+        <div className="absolute inset-0" aria-hidden="true">
+          <div className="absolute left-1/2 top-0 h-1/2 w-[3px] -translate-x-1/2 rounded-full bg-slate-200/40" />
         </div>
-        <div
-          className={`pointer-events-none absolute left-1/2 top-1/2 h-20 w-20 transition-opacity duration-200 ${pointerOpacityClass}`}
-          style={{
-            transform: `translate(-50%, -50%) rotate(${pointerRotation}deg)`,
-            transformOrigin: '50% 50%'
-          }}
-          aria-hidden="true"
-        >
-          <svg viewBox="0 0 40 40" className="h-full w-full">
-            <path
-              d="M20 4 25 18h-3.8l4 16-5.2-9.2-5.2 9.2 4-16H15z"
-              fill="#34d399"
-              stroke="#166534"
-              strokeWidth="1.2"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
+        {northRotation != null && (
+          <div
+            className="absolute inset-0"
+            style={{ transform: `rotate(${northRotation}deg)` }}
+            aria-hidden="true"
+          >
+            <div className="absolute left-1/2 top-0 h-1/2 w-[3px] -translate-x-1/2 rounded-full bg-white" />
+          </div>
+        )}
+        {hasTargetBearing && pointerRotation != null && (
+          <div
+            className="absolute inset-0"
+            style={{ transform: `rotate(${pointerRotation}deg)` }}
+            aria-hidden="true"
+          >
+            <div className="absolute left-1/2 top-2 flex h-8 w-8 -translate-x-1/2 items-start justify-center">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-emerald-300">
+                <path
+                  d="M12 2.5 16.5 12h-3.1v7.5h-2.8V12H7.5z"
+                  fill="currentColor"
+                  stroke="#065f46"
+                  strokeWidth="1.1"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          </div>
+        )}
         {compassDisabled && (
           <div
             className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-slate-950 text-center"
