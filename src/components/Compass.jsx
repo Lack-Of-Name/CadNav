@@ -154,7 +154,7 @@ const Compass = ({
             aria-hidden="true"
           >
             <div className="absolute left-1/2 top-0 h-1/2 w-[3px] -translate-x-1/2 rounded-full bg-white" />
-            <span className="absolute left-1/2 top-3 -translate-x-1/2 text-[10px] font-semibold text-blue-300">
+            <span className="absolute left-1/2 top-3 -translate-x-1/2 text-[20px] font-semibold text-blue-600">
               N
             </span>
           </div>
