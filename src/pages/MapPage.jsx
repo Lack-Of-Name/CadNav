@@ -79,7 +79,7 @@ const MapPage = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [locationRequestToken, setLocationRequestToken] = useState(0);
   const [bearingUnit, setBearingUnit] = useState('degrees');
-  const [baseLayer, setBaseLayer] = useState('street');
+  const [baseLayer, setBaseLayer] = useState('topo');
   const [toolbarTheme, setToolbarTheme] = useState('light');
   const [overlayHeight, setOverlayHeight] = useState(0.58);
   const dragStateRef = useRef(null);
