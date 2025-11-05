@@ -191,6 +191,54 @@ const toolbarThemes = {
 
 const MAX_TILE_FETCH_CONCURRENCY = 6;
 
+const helpSections = [
+  {
+    id: 'getting-started',
+    title: 'Getting started',
+    description:
+      'Enable GPS, choose a base map that fits the terrain, and tap on the map to place the start and finish markers.',
+    points: [
+      'Use the GPS button in the menu or the “Center map on my location” control to snap to your current position.',
+      'Tap the placement tools to add Start, End, or intermediate checkpoints directly on the map.',
+      'Switch between the light and night toolbar themes for readability in different lighting conditions.'
+    ]
+  },
+  {
+    id: 'toolbar',
+    title: 'Toolbar buttons',
+    description:
+      'Each button in the floating toolbar opens a mission tool. All tools can be accessed from the Menu button as well.',
+    points: [
+      'Menu toggles the quick actions panel where you can jump to Compass, Route, Grid, or GPS controls.',
+      'Compass opens the heading overlay showing bearings to your selected checkpoint.',
+      'Route leads to the checkpoint manager where you can reorder, drag, or remove checkpoints.'
+    ]
+  },
+  {
+    id: 'maps',
+    title: 'Choosing maps',
+    description:
+      'Different base layers emphasise different features. Pick the layer that best supports the task at hand.',
+    points: [
+      'OpenStreetMap Street is the fallback layer and works reliably online and offline.',
+      'Carto Light or Dark provide high-contrast styling that is easier to read in bright sun or at night.',
+      'OpenTopoMap is ideal for land navigation exercises where contours and terrain shading matter.',
+      'Esri Satellite is best for visual reconnaissance; cache imagery ahead of time if you need it offline.'
+    ]
+  },
+  {
+    id: 'tips',
+    title: 'Mission tips',
+    description:
+      'Keep your checkpoint list tidy and double-check headings before moving to the next leg.',
+    points: [
+      'Drag checkpoints directly on the map to refine their positions with precision.',
+      'Use the Connect mode toggle to compare straight-line routes with routed paths.',
+      'If the map ever looks stale after switching layers, tap “Center map on my location” to recalibrate.'
+    ]
+  }
+];
+
 const latLngToTile = (lat, lng, zoom) => {
   const latRad = (lat * Math.PI) / 180;
   const scale = 2 ** zoom;
@@ -306,7 +354,11 @@ const MapView = ({
   const [isCaching, setIsCaching] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsView, setSettingsView] = useState('settings');
+  const [tileLayerReloadKey, setTileLayerReloadKey] = useState(0);
   const cacheStatusTimeoutRef = useRef(null);
+  const tileFailureRef = useRef(0);
+  const latestUserLocationRef = useRef(null);
 
   const tileProvider = tileProviders[baseLayer] ?? tileProviders.street;
   const themeStyles = toolbarThemes[toolbarTheme] ?? toolbarThemes.light;
@@ -357,11 +409,14 @@ const MapView = ({
   useEffect(() => {
     showCacheStatus(null);
     setIsCaching(false);
+    tileFailureRef.current = 0;
+    setTileLayerReloadKey((key) => key + 1);
   }, [baseLayer, showCacheStatus]);
 
   useEffect(() => {
     if (isMenuOpen) {
       setIsSettingsOpen(false);
+      setSettingsView('settings');
     }
   }, [isMenuOpen]);
 
@@ -402,7 +457,7 @@ const MapView = ({
     if (isMapReady) {
       scheduleInvalidate();
     }
-  }, [isMapReady, scheduleInvalidate, toolbarTheme, isSettingsOpen, isMenuOpen]);
+  }, [isMapReady, scheduleInvalidate, toolbarTheme, isSettingsOpen, isMenuOpen, baseLayer]);
 
   useEffect(() => {
     if (!mapRef.current || !userLocation) return;
@@ -410,6 +465,25 @@ const MapView = ({
     mapRef.current.setView([userLocation.lat, userLocation.lng], 16);
     hasCenteredRef.current = true;
   }, [userLocation]);
+
+  useEffect(() => {
+    latestUserLocationRef.current = userLocation;
+  }, [userLocation]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    hasCenteredRef.current = false;
+    scheduleInvalidate();
+    const latestLocation = latestUserLocationRef.current;
+    if (latestLocation) {
+      mapRef.current.flyTo(
+        [latestLocation.lat, latestLocation.lng],
+        Math.max(mapRef.current.getZoom(), 16),
+        { animate: false }
+      );
+      hasCenteredRef.current = true;
+    }
+  }, [baseLayer, scheduleInvalidate]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -631,7 +705,18 @@ const MapView = ({
   }, [baseLayer, checkpoints, end, isMapReady, showCacheStatus, start, tileProvider.subdomains, tileProvider.url, userLocation]);
 
   const handleToggleSettings = useCallback(() => {
-    setIsSettingsOpen((current) => !current);
+    setIsSettingsOpen((current) => {
+      const next = !current;
+      if (!current || !next) {
+        setSettingsView('settings');
+      }
+      return next;
+    });
+  }, []);
+
+  const handleOpenHelpView = useCallback(() => {
+    setSettingsView('help');
+    setIsSettingsOpen(true);
   }, []);
 
   const handleToolbarThemeChange = useCallback(() => {
@@ -656,6 +741,46 @@ const MapView = ({
 
   const cacheDisabled = baseLayer !== 'satellite' || isCaching;
   const cacheButtonLabel = isCaching ? 'Caching…' : baseLayer !== 'satellite' ? 'Satellite required' : 'Cache tiles';
+
+  const tileEventHandlers = useMemo(
+    () => ({
+      loading: () => {
+        tileFailureRef.current = 0;
+      },
+      load: () => {
+        scheduleInvalidate();
+      },
+      tileerror: () => {
+        tileFailureRef.current += 1;
+        if (tileFailureRef.current >= 3) {
+          tileFailureRef.current = 0;
+          showCacheStatus('Tile issues detected. Reverting to standard map.', 'warning', 3000);
+          if (baseLayer !== 'street' && typeof onBaseLayerChange === 'function') {
+            onBaseLayerChange('street');
+          } else {
+            setTileLayerReloadKey((key) => key + 1);
+          }
+        }
+      }
+    }),
+    [baseLayer, onBaseLayerChange, scheduleInvalidate, showCacheStatus]
+  );
+
+  const settingsToggleClass = useMemo(
+    () =>
+      `${themeStyles.panelToggle} ${
+        settingsView === 'settings' ? 'ring-1 ring-sky-400 text-sky-500 border-sky-400' : 'opacity-80'
+      }`,
+    [settingsView, themeStyles.panelToggle]
+  );
+
+  const helpToggleClass = useMemo(
+    () =>
+      `${themeStyles.panelToggle} ${
+        settingsView === 'help' ? 'ring-1 ring-sky-400 text-sky-500 border-sky-400' : 'opacity-80'
+      }`,
+    [settingsView, themeStyles.panelToggle]
+  );
 
   const directPath = useMemo(() => {
     const path = [];
@@ -683,12 +808,13 @@ const MapView = ({
       >
         <AttributionControl position="bottomleft" prefix={false} />
         <TileLayer
-          key={tileProvider.id}
+          key={`${tileProvider.id}-${tileLayerReloadKey}`}
           url={tileProvider.url}
           attribution={tileProvider.attribution}
           subdomains={tileProvider.subdomains}
           minZoom={tileProvider.minZoom}
           maxZoom={tileProvider.maxZoom}
+          eventHandlers={tileEventHandlers}
         />
         <PlacementHandler />
 
@@ -823,79 +949,126 @@ const MapView = ({
           </div>
         )}
         {isSettingsOpen && (
-          <div className={themeStyles.panel}>
-            <div className="mb-3 flex items-center justify-between">
-              <span className={themeStyles.panelTitle}>Settings</span>
+          <div className={`${themeStyles.panel} max-h-[70vh]`}>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className={themeStyles.panelTitle}>
+                {settingsView === 'help' ? 'Help' : 'Settings'}
+              </span>
               <button
                 type="button"
                 className={themeStyles.panelButton}
-                onClick={() => setIsSettingsOpen(false)}
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  setSettingsView('settings');
+                }}
               >
                 Close
               </button>
             </div>
-            <div className="flex flex-col gap-3 text-[12px]">
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-medium">Toolbar theme</span>
-                <button
-                  type="button"
-                  className={themeStyles.panelToggle}
-                  onClick={handleToolbarThemeChange}
-                >
-                  {toolbarTheme === 'light' ? 'Light' : 'Night'}
-                </button>
-              </div>
-              <div>
-                <span className="font-medium">Map layers</span>
-                <p className="text-[11px] opacity-70">Choose the basemap that suits your mission.</p>
-                <div className={`${themeStyles.layerScroll} mt-2`}>
-                  {layerOptions.map((provider) => {
-                    const isSelected = provider.id === baseLayer;
-                    return (
-                      <button
-                        key={provider.id}
-                        type="button"
-                        className={`${themeStyles.layerOption} ${isSelected ? themeStyles.layerOptionActive : ''}`}
-                        onClick={() => handleBaseLayerToggle(provider.id)}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-[12px] font-semibold leading-tight">{provider.label}</p>
-                            {provider.category && (
-                              <p className={themeStyles.layerOptionCategory}>{provider.category}</p>
-                            )}
-                          </div>
-                          {isSelected && (
-                            <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-500">Current</span>
-                          )}
-                        </div>
-                        <p className={themeStyles.layerOptionDescription}>{provider.description}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <span className="font-medium">Cache imagery</span>
-                  <p className="text-[11px] opacity-70">Download tiles within 2&nbsp;km</p>
-                </div>
-                <button
-                  type="button"
-                  className={`${themeStyles.panelButton} ${cacheDisabled ? 'opacity-60 pointer-events-none' : ''}`}
-                  onClick={handlePrefetchTiles}
-                  disabled={cacheDisabled}
-                >
-                  {cacheButtonLabel}
-                </button>
-              </div>
+            <div className="mb-3 flex items-center gap-2 text-[11px]">
               <button
                 type="button"
-                className={themeStyles.panelButton}
-                onClick={handleCenterOnUser}
+                className={settingsToggleClass}
+                onClick={() => setSettingsView('settings')}
+                aria-pressed={settingsView === 'settings'}
               >
-                Center map on my location
+                Settings
               </button>
+              <button
+                type="button"
+                className={helpToggleClass}
+                onClick={handleOpenHelpView}
+                aria-pressed={settingsView === 'help'}
+              >
+                Help
+              </button>
+            </div>
+            <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1 text-[12px]">
+              {settingsView === 'help' ? (
+                <div className="flex flex-col gap-2">
+                  {helpSections.map((section) => (
+                    <section
+                      key={section.id}
+                      className={`${themeStyles.layerOption} cursor-default`}
+                      aria-labelledby={`${section.id}-title`}
+                    >
+                      <h3 id={`${section.id}-title`} className="text-[12px] font-semibold leading-tight">
+                        {section.title}
+                      </h3>
+                      <p className={themeStyles.layerOptionDescription}>{section.description}</p>
+                      <ul className="ml-3 list-disc space-y-1 text-[11px] leading-snug">
+                        {section.points.map((item, index) => (
+                          <li key={index}>{item}</li>
+                        ))}
+                      </ul>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium">Toolbar theme</span>
+                    <button
+                      type="button"
+                      className={themeStyles.panelToggle}
+                      onClick={handleToolbarThemeChange}
+                    >
+                      {toolbarTheme === 'light' ? 'Light' : 'Night'}
+                    </button>
+                  </div>
+                  <div>
+                    <span className="font-medium">Map layers</span>
+                    <p className="text-[11px] opacity-70">Choose the basemap that suits your mission.</p>
+                    <div className={`${themeStyles.layerScroll} mt-2`}>
+                      {layerOptions.map((provider) => {
+                        const isSelected = provider.id === baseLayer;
+                        return (
+                          <button
+                            key={provider.id}
+                            type="button"
+                            className={`${themeStyles.layerOption} ${isSelected ? themeStyles.layerOptionActive : ''}`}
+                            onClick={() => handleBaseLayerToggle(provider.id)}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-[12px] font-semibold leading-tight">{provider.label}</p>
+                                {provider.category && (
+                                  <p className={themeStyles.layerOptionCategory}>{provider.category}</p>
+                                )}
+                              </div>
+                              {isSelected && (
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-500">Current</span>
+                              )}
+                            </div>
+                            <p className={themeStyles.layerOptionDescription}>{provider.description}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <span className="font-medium">Cache imagery</span>
+                      <p className="text-[11px] opacity-70">Download tiles within 2&nbsp;km</p>
+                    </div>
+                    <button
+                      type="button"
+                      className={`${themeStyles.panelButton} ${cacheDisabled ? 'opacity-60 pointer-events-none' : ''}`}
+                      onClick={handlePrefetchTiles}
+                      disabled={cacheDisabled}
+                    >
+                      {cacheButtonLabel}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className={themeStyles.panelButton}
+                    onClick={handleCenterOnUser}
+                  >
+                    Center map on my location
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

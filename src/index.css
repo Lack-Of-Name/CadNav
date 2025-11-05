@@ -57,13 +57,10 @@ body {
 }
 
 .map-theme-light .leaflet-pane.leaflet-tile-pane,
-.map-theme-light .leaflet-tile-container {
-  background-color: rgba(226, 232, 240, 0.18);
-}
-
+.map-theme-light .leaflet-tile-container,
 .map-theme-dark .leaflet-pane.leaflet-tile-pane,
 .map-theme-dark .leaflet-tile-container {
-  background-color: #050b18;
+  background-color: transparent;
 }
 
 .viewport-safe {

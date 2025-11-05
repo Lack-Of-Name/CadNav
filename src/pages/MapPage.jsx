@@ -83,6 +83,8 @@ const MapPage = () => {
   const [toolbarTheme, setToolbarTheme] = useState('light');
   const [overlayHeight, setOverlayHeight] = useState(0.58);
   const dragStateRef = useRef(null);
+  const didMountRef = useRef(false);
+  const latestGeolocationRef = useRef(null);
 
   const OVERLAY_MIN_HEIGHT = 0.32;
   const OVERLAY_MAX_HEIGHT = 0.85;
@@ -186,6 +188,22 @@ const MapPage = () => {
   useEffect(() => {
     handleEnableLocation();
   }, [handleEnableLocation]);
+
+  useEffect(() => {
+    latestGeolocationRef.current = geolocation;
+  }, [geolocation]);
+
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    if (locationEnabled) {
+      handleEnableLocation();
+    } else if (latestGeolocationRef.current) {
+      setLocationRequestToken((token) => token + 1);
+    }
+  }, [baseLayer, locationEnabled, handleEnableLocation]);
 
   const handleToolbarThemeToggle = useCallback(() => {
     setToolbarTheme((current) => (current === 'light' ? 'dark' : 'light'));
