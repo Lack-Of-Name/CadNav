@@ -14,6 +14,7 @@ const Compass = ({
   bearing,
   distance,
   error,
+  enableCompass,
   onEnableLocation,
   needsPermission,
   isSupported,
@@ -36,6 +37,12 @@ const Compass = ({
       onEnableLocation();
     }
   };
+  const handleEnableCompass= () => {
+    if (typeof enableCompass === 'function') {
+      enableCompass();
+    }
+  };
+
 
   const locationButtonLabel = (() => {
     if (hasLocationFix) return 'Location Active';
@@ -45,6 +52,7 @@ const Compass = ({
 
   const locationButtonDisabled = isRequestingLocation || hasLocationFix;
   const toggleDisabled = typeof onToggleBearingUnit !== 'function';
+  const compassButtonDisabled = !isSupported && !needsPermission;
   const canSelectTargets = typeof onSelectTarget === 'function';
 
   const formatCoordinates = (position) => {
@@ -113,6 +121,14 @@ const Compass = ({
             disabled={locationButtonDisabled}
           >
             {locationButtonLabel}
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-700 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleEnableCompass}
+            disabled={compassButtonDisabled}
+          >
+            Enable Compass
           </button>
           <button
             type="button"
