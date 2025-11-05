@@ -29,7 +29,23 @@ const normalizePlacementMode = (mode) => {
 
 export const useCheckpointsStore = create((set, get) => ({
   ...initialState,
-  setPlacementMode: (mode) => set({ placementMode: normalizePlacementMode(mode) }),
+  setPlacementMode: (mode) =>
+    set((state) => {
+      const normalized = normalizePlacementMode(mode);
+      if (!normalized) {
+        return { placementMode: null };
+      }
+
+      const current = normalizePlacementMode(state.placementMode);
+      if (
+        current?.type === normalized.type &&
+        (current?.insertIndex ?? null) === (normalized?.insertIndex ?? null)
+      ) {
+        return { placementMode: null };
+      }
+
+      return { placementMode: normalized };
+    }),
   toggleConnectMode: () =>
     set((state) => ({
       connectVia: state.connectVia === 'direct' ? 'route' : 'direct'

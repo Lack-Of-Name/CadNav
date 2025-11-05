@@ -23,8 +23,8 @@ const ToolbarButton = ({
   const iconSrc = resolveToolbarIcon(iconName);
   const buttonTheme = themeStyles?.button ?? {};
   const baseStyles = buttonTheme.base ?? 'flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2';
-  const activeStyles = buttonTheme.active ?? 'border-sky-500 bg-sky-200/95 text-slate-900 focus-visible:ring-sky-400';
-  const idleStyles = buttonTheme.idle ?? 'border-slate-300 bg-slate-100/95 text-slate-900 hover:border-slate-400 hover:bg-slate-200/90 focus-visible:ring-slate-500/50';
+  const activeStyles = buttonTheme.active ?? 'border-sky-500 bg-sky-200 text-slate-900 focus-visible:ring-sky-400';
+  const idleStyles = buttonTheme.idle ?? 'border-slate-300 bg-slate-100 text-slate-900 hover:border-slate-400 hover:bg-slate-200 focus-visible:ring-slate-500/50';
   const disabledStyles = disabled ? buttonTheme.disabled ?? 'opacity-60 pointer-events-none' : '';
   const iconStyle = themeStyles?.iconStyle ?? null;
   const iconClassName = themeStyles?.iconClass ?? '';
@@ -146,42 +146,42 @@ const orderedProviderIds = ['street', 'light', 'dark', 'voyager', 'hot', 'topo',
 
 const toolbarThemes = {
   light: {
-    container: 'pointer-events-auto flex flex-col gap-2 rounded-3xl border border-slate-200 bg-slate-100/95 p-2 text-slate-900 backdrop-blur-sm',
-    badge: 'rounded-full border border-slate-300 bg-slate-100/95 px-3 py-1 text-[10px] font-semibold text-slate-700',
+    container: 'pointer-events-auto flex flex-col gap-2 rounded-3xl border border-slate-200 bg-slate-100 p-2 text-slate-900 backdrop-blur-sm',
+    badge: 'rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-[10px] font-semibold text-slate-700',
     button: {
       base: 'flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-400/40 focus-visible:ring-offset-slate-100/60',
-      active: 'border-sky-500 bg-sky-200/95 text-slate-900',
-      idle: 'border-slate-300 bg-slate-100/95 text-slate-900 hover:border-slate-400 hover:bg-slate-200/90',
+      active: 'border-sky-500 bg-sky-200 text-slate-900',
+      idle: 'border-slate-300 bg-slate-100 text-slate-900 hover:border-slate-400 hover:bg-slate-200',
       disabled: 'opacity-60 pointer-events-none'
     },
-    panel: 'pointer-events-auto w-60 rounded-3xl border border-slate-200 bg-slate-100/95 p-4 text-slate-900 backdrop-blur-md',
+    panel: 'pointer-events-auto w-60 rounded-3xl border border-slate-200 bg-slate-100 p-4 text-slate-900 backdrop-blur-md',
     panelTitle: 'text-[11px] font-semibold uppercase tracking-wide text-slate-500',
-    panelButton: 'rounded-xl border border-slate-300 bg-white/80 px-3 py-1.5 text-[12px] font-semibold text-slate-900 transition hover:border-sky-400 hover:bg-sky-100/80',
-    panelToggle: 'rounded-xl border border-slate-300 bg-slate-100 px-3 py-1.5 text-[12px] font-semibold text-slate-900 transition hover:border-sky-400 hover:bg-sky-100/80',
+    panelButton: 'rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 transition hover:border-sky-400 hover:bg-sky-100',
+    panelToggle: 'rounded-xl border border-slate-300 bg-slate-100 px-3 py-1.5 text-[12px] font-semibold text-slate-900 transition hover:border-sky-400 hover:bg-sky-100',
     layerScroll: 'flex max-h-60 flex-col gap-2 overflow-y-auto pr-1',
-    layerOption: 'flex flex-col gap-1 rounded-2xl border border-slate-300 bg-white/90 px-3 py-2 text-left transition hover:border-sky-400 hover:bg-sky-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40',
-    layerOptionActive: 'border-sky-500 bg-sky-100/90 text-slate-900 shadow-inner shadow-sky-200/60',
+    layerOption: 'flex flex-col gap-1 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-left transition hover:border-sky-400 hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40',
+    layerOptionActive: 'border-sky-500 bg-sky-100 text-slate-900 shadow-inner shadow-sky-200/60',
     layerOptionDescription: 'text-[11px] text-slate-500 leading-snug',
     layerOptionCategory: 'text-[10px] font-semibold uppercase tracking-wide text-slate-400',
     iconStyle: null,
     iconClass: ''
   },
   dark: {
-    container: 'pointer-events-auto flex flex-col gap-2 rounded-3xl border border-slate-700 bg-[#0b1224]/92 p-2 text-slate-100 backdrop-blur-sm',
-    badge: 'rounded-full border border-slate-600 bg-[#0f1b38]/90 px-3 py-1 text-[10px] font-semibold text-slate-200',
+    container: 'pointer-events-auto flex flex-col gap-2 rounded-3xl border border-slate-700 bg-[#0b1224] p-2 text-slate-100 backdrop-blur-sm',
+    badge: 'rounded-full border border-slate-600 bg-[#0f1b38] px-3 py-1 text-[10px] font-semibold text-slate-200',
     button: {
       base: 'flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-200/30 focus-visible:ring-offset-[#0b1224]/40',
-      active: 'border-sky-400 bg-sky-500/25 text-sky-100',
-      idle: 'border-slate-600 bg-[#0d172e]/85 text-slate-100 hover:border-slate-400 hover:bg-[#15213f]/90',
+  active: 'border-sky-400 bg-[#1e335d] text-sky-100',
+      idle: 'border-slate-600 bg-[#0d172e] text-slate-100 hover:border-slate-400 hover:bg-[#15213f]',
       disabled: 'opacity-50 pointer-events-none'
     },
-    panel: 'pointer-events-auto w-60 rounded-3xl border border-slate-700 bg-[#080f1e]/95 p-4 text-slate-100 backdrop-blur-md',
+    panel: 'pointer-events-auto w-60 rounded-3xl border border-slate-700 bg-[#080f1e] p-4 text-slate-100 backdrop-blur-md',
     panelTitle: 'text-[11px] font-semibold uppercase tracking-wide text-slate-400',
-    panelButton: 'rounded-xl border border-slate-600 bg-[#111b33]/85 px-3 py-1.5 text-[12px] font-semibold text-slate-100 transition hover:border-sky-400 hover:bg-[#1d2b4e]',
-    panelToggle: 'rounded-xl border border-slate-500 bg-[#0f1b38]/85 px-3 py-1.5 text-[12px] font-semibold text-slate-100 transition hover:border-sky-400 hover:bg-[#1a2a4d]',
+    panelButton: 'rounded-xl border border-slate-600 bg-[#111b33] px-3 py-1.5 text-[12px] font-semibold text-slate-100 transition hover:border-sky-400 hover:bg-[#1d2b4e]',
+    panelToggle: 'rounded-xl border border-slate-500 bg-[#0f1b38] px-3 py-1.5 text-[12px] font-semibold text-slate-100 transition hover:border-sky-400 hover:bg-[#1a2a4d]',
     layerScroll: 'flex max-h-60 flex-col gap-2 overflow-y-auto pr-1',
-    layerOption: 'flex flex-col gap-1 rounded-2xl border border-slate-600 bg-[#101d39]/85 px-3 py-2 text-left transition hover:border-sky-400 hover:bg-[#16254a]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200/30',
-    layerOptionActive: 'border-sky-400 bg-[#1e335d]/90 text-sky-100 shadow-inner shadow-sky-900/40',
+    layerOption: 'flex flex-col gap-1 rounded-2xl border border-slate-600 bg-[#101d39] px-3 py-2 text-left transition hover:border-sky-400 hover:bg-[#16254a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200/30',
+    layerOptionActive: 'border-sky-400 bg-[#1e335d] text-sky-100 shadow-inner shadow-sky-900/40',
     layerOptionDescription: 'text-[11px] text-slate-300 leading-snug',
     layerOptionCategory: 'text-[10px] font-semibold uppercase tracking-wide text-slate-400/90',
     iconStyle: { filter: 'invert(0.9)' },
@@ -357,6 +357,8 @@ const MapView = ({
   const tileProvider = tileProviders[baseLayer] ?? tileProviders.street;
   const themeStyles = toolbarThemes[toolbarTheme] ?? toolbarThemes.light;
   const mapThemeClass = toolbarTheme === 'dark' ? 'map-theme-dark' : 'map-theme-light';
+  const mapCenter = userLocation ? [userLocation.lat, userLocation.lng] : defaultPosition;
+  const mapKey = userLocation ? 'user-centered' : 'default-centered';
   const scheduleInvalidate = useCallback(() => {
     if (mapRef.current) {
       mapRef.current.invalidateSize({ animate: false });
@@ -773,7 +775,8 @@ const MapView = ({
   return (
     <div className="relative h-full w-full flex-1">
       <MapContainer
-        center={userLocation ? [userLocation.lat, userLocation.lng] : defaultPosition}
+        key={mapKey}
+        center={mapCenter}
         zoom={13}
         className={`h-full w-full ${mapThemeClass}`}
         preferCanvas
@@ -873,12 +876,12 @@ const MapView = ({
         <div
           className={`pointer-events-none absolute left-1/2 top-4 z-[1000] -translate-x-1/2 rounded-full border px-4 py-1.5 text-[11px] font-semibold tracking-wide ${
             cacheStatus.tone === 'success'
-              ? 'border-emerald-300 bg-emerald-100/95 text-emerald-900'
+              ? 'border-emerald-300 bg-emerald-200 text-emerald-900'
               : cacheStatus.tone === 'warning'
-                ? 'border-amber-300 bg-amber-100/95 text-amber-900'
+                ? 'border-amber-300 bg-amber-200 text-amber-900'
                 : cacheStatus.tone === 'error'
-                  ? 'border-rose-300 bg-rose-100/95 text-rose-900'
-                  : 'border-sky-300 bg-sky-100/95 text-slate-900'
+                  ? 'border-rose-300 bg-rose-200 text-rose-900'
+                  : 'border-sky-300 bg-sky-200 text-slate-900'
           }`}
         >
           {cacheStatus.message}
@@ -932,7 +935,8 @@ const MapView = ({
         <div className="pointer-events-auto fixed inset-0 z-[1180] flex items-center justify-center p-4">
           <button
             type="button"
-            className="absolute inset-0 rounded-none border-0 bg-slate-950/45 backdrop-blur-sm"
+            className="absolute inset-0 rounded-none border-0 bg-slate-950 backdrop-blur-sm"
+            style={{ backgroundColor: 'rgba(2, 6, 23, 0.45)' }}
             aria-label="Close settings"
             onClick={() => {
               setIsSettingsOpen(false);
@@ -1070,7 +1074,7 @@ const MapView = ({
       )}
 
       {selectedId && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 w-64 -translate-x-1/2 rounded-lg bg-slate-900/80 p-3 text-center text-sm font-semibold text-sky-200 shadow-lg shadow-slate-950">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 w-64 -translate-x-1/2 rounded-lg bg-slate-900 p-3 text-center text-sm font-semibold text-sky-200 shadow-lg shadow-slate-950">
           Selected: {selectedId === 'start' ? 'Start' : selectedId === 'end' ? 'End' : 'Checkpoint'}
         </div>
       )}

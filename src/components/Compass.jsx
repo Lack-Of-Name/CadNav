@@ -7,6 +7,8 @@ const formatDistance = (distance) => {
   return `${(distance / 1000).toFixed(2)} km`;
 };
 
+const MILS_PER_RADIAN = 3200 / Math.PI;
+
 const Compass = ({
   heading,
   bearing,
@@ -72,17 +74,21 @@ const Compass = ({
 
   const convertAngle = (value) => {
     if (value == null) return null;
+    const normalized = ((value % 360) + 360) % 360;
     if (bearingUnit === 'mils') {
-      return (value * 6400) / 360;
+      const radians = (normalized * Math.PI) / 180;
+      const milValue = (radians * MILS_PER_RADIAN + 6400) % 6400;
+      return milValue;
     }
-    return value;
+    return normalized;
   };
 
   const formatAngle = (value) => {
     if (value == null) return 'N/A';
     const converted = convertAngle(value);
+    if (converted == null) return 'N/A';
     if (bearingUnit === 'mils') {
-      return `${converted.toFixed(0)} mil`;
+      return `${converted.toFixed(1)} mil`;
     }
     return `${converted.toFixed(0)}°`;
   };
@@ -93,14 +99,27 @@ const Compass = ({
     }
   };
 
+  const hasTargetBearing = bearing != null && heading != null;
+  const pointerRotation = hasTargetBearing ? relativeBearing ?? 0 : 0;
+  const headingRotation = heading ?? 0;
+  const showHeading = heading != null;
+  const compassDisabled = needsPermission || !isSupported;
+  const containerToneClass = compassDisabled
+    ? 'border border-rose-500 text-rose-200'
+    : 'border border-slate-800 text-slate-100';
+  const compassCircleClass = compassDisabled
+    ? 'border-rose-500 bg-slate-800'
+    : 'border-sky-500 bg-slate-950';
+  const pointerOpacityClass = hasTargetBearing ? 'opacity-100' : 'opacity-0';
+
   return (
-    <div className="flex flex-col items-center gap-4 rounded-2xl bg-slate-900/70 p-5 text-center shadow-lg shadow-slate-950">
+    <div className={`flex flex-col items-center gap-4 rounded-2xl bg-slate-900 p-5 text-center shadow-lg shadow-slate-950 ${containerToneClass}`}>
       <div className="flex w-full flex-wrap items-center justify-center gap-2">
         <h2 className="text-base font-semibold text-sky-200">Compass</h2>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
-            className="rounded-full border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-700 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
             onClick={handleEnableLocation}
             disabled={locationButtonDisabled}
           >
@@ -108,7 +127,7 @@ const Compass = ({
           </button>
           <button
             type="button"
-            className="rounded-full border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-700 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
             onClick={handleCalibrate}
             disabled={calibrateDisabled}
           >
@@ -125,21 +144,55 @@ const Compass = ({
         </div>
       </div>
 
-      <div className="relative flex h-44 w-44 items-center justify-center rounded-full border border-sky-500/50 bg-slate-950 shadow-inner shadow-slate-950/40">
-        <div className="absolute inset-3 rounded-full border border-slate-800/60"></div>
-        <div className="absolute inset-3 flex items-start justify-center">
-          <span className="h-14 w-px rounded-full bg-white/60" aria-hidden="true" />
+      <div className={`relative flex h-44 w-44 items-center justify-center rounded-full shadow-inner shadow-slate-950/40 ${compassCircleClass}`}>
+        <div className="absolute inset-3 rounded-full border border-slate-800" aria-hidden="true"></div>
+        <span className="absolute top-3 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-white" aria-hidden="true">
+          N
+        </span>
+        <div className="absolute left-1/2 top-4 bottom-4 w-px -translate-x-1/2 rounded-full bg-white" aria-hidden="true" />
+        <div
+          className={`pointer-events-none absolute left-1/2 top-1/2 h-32 w-32 transition-opacity duration-200 ${showHeading ? 'opacity-100' : 'opacity-0'}`}
+          style={{
+            transform: `translate(-50%, -50%) rotate(${headingRotation}deg)`,
+            transformOrigin: '50% 50%'
+          }}
+          aria-hidden="true"
+        >
+          <div className="mx-auto h-14 w-[3px] rounded-full bg-sky-400" />
         </div>
-        <div className="absolute flex h-full w-px items-end justify-center">
-          <div className="h-6 w-0.5 bg-sky-500" />
+        <div
+          className={`pointer-events-none absolute left-1/2 top-1/2 h-20 w-20 transition-opacity duration-200 ${pointerOpacityClass}`}
+          style={{
+            transform: `translate(-50%, -50%) rotate(${pointerRotation}deg)`,
+            transformOrigin: '50% 50%'
+          }}
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 40 40" className="h-full w-full">
+            <path
+              d="M20 4 25 18h-3.8l4 16-5.2-9.2-5.2 9.2 4-16H15z"
+              fill="#34d399"
+              stroke="#166534"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+          </svg>
         </div>
-        <div className="absolute flex h-full w-full items-center justify-center">
+        {compassDisabled && (
           <div
-            className="h-16 w-2 origin-bottom rounded-t-full bg-emerald-400 shadow-lg shadow-emerald-400/40"
-            style={{ transform: `rotate(${relativeBearing ?? 0}deg)` }}
-          />
-        </div>
-        <span className="absolute bottom-4 text-xs text-slate-400">
+            className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-slate-950 text-center"
+            style={{ backgroundColor: 'rgba(2, 6, 23, 0.85)' }}
+          >
+            <p className="text-lg font-bold uppercase tracking-wide text-rose-200">Compass not enabled</p>
+            {needsPermission && (
+              <p className="mt-1 text-xs text-rose-200/80">Tap Enable Compass to allow motion access.</p>
+            )}
+            {!needsPermission && !isSupported && (
+              <p className="mt-1 text-xs text-rose-200/80">This device does not expose compass sensors.</p>
+            )}
+          </div>
+        )}
+        <span className="absolute bottom-4 text-xs text-slate-300">
           {heading != null ? formatAngle(heading) : '—'}
         </span>
       </div>
@@ -161,7 +214,7 @@ const Compass = ({
         {error && <p className="text-rose-400">Error: {error}</p>}
       </div>
 
-      <div className="w-full rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-left">
+  <div className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-left">
         <p className="text-xs font-semibold uppercase tracking-wide text-sky-300">Active checkpoint</p>
         {selectedTarget ? (
           <div className="mt-2">
@@ -180,7 +233,7 @@ const Compass = ({
       </div>
 
       {targets.length > 0 && (
-        <div className="w-full rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-left">
+  <div className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-left">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-300">
             {targetListTitle}
           </p>
@@ -192,8 +245,8 @@ const Compass = ({
                 tabIndex={canSelectTargets ? 0 : undefined}
                 className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs text-slate-200 transition ${
                   canSelectTargets
-                    ? 'cursor-pointer border-slate-700 bg-slate-900/60 hover:border-sky-500 hover:bg-sky-500/10 focus:outline-none focus:ring-2 focus:ring-sky-500/60'
-                    : 'border-slate-800 bg-slate-900/60'
+          ? 'cursor-pointer border-slate-700 bg-slate-900 hover:border-sky-500 hover:bg-sky-900 focus:outline-none focus:ring-2 focus:ring-sky-500/60'
+                    : 'border-slate-800 bg-slate-900'
                 }`}
                 onClick={canSelectTargets ? () => handleSelectTarget(target.id) : undefined}
                 onKeyDown={
@@ -208,7 +261,7 @@ const Compass = ({
                 }
               >
                 <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-950/80">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-950">
                     <svg
                       viewBox="0 0 24 24"
                       className="h-4 w-4 text-sky-300"

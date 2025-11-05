@@ -280,7 +280,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
   const unitMeters = precisionToUnitMeters(precision);
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-slate-900/70 p-4 text-xs text-slate-200 shadow-lg shadow-slate-950">
+    <div className="flex flex-col gap-3 rounded-2xl bg-slate-900 p-4 text-xs text-slate-200 shadow-lg shadow-slate-950">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-sky-200">Grid Tools</h2>
         <div className="flex gap-1">
@@ -313,7 +313,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
         Anchor your map to a known grid origin, then convert additional grid references into precise map points.
       </p>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+      <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-300">Origin</h3>
         <div className="flex gap-2">
           <div className="flex flex-1 flex-col gap-2">
@@ -322,7 +322,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
               <input
                 value={originLat}
                 onChange={(event) => setOriginLat(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
                 placeholder="e.g. 45.123456"
               />
             </label>
@@ -331,7 +331,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
               <input
                 value={originLng}
                 onChange={(event) => setOriginLng(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
                 placeholder="e.g. -75.987654"
               />
             </label>
@@ -339,14 +339,14 @@ const GridTools = ({ userLocation, selectedPosition }) => {
           <div className="flex flex-col gap-2">
             <button
               type="button"
-              className="rounded-md border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/10"
+              className="rounded-md border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-900"
               onClick={fillFromUserLocation}
             >
               Use my location
             </button>
             <button
               type="button"
-              className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/10"
+              className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-900"
               onClick={fillFromSelected}
             >
               Use selected marker
@@ -366,7 +366,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
             <input
               value={originEast}
               onChange={(event) => setOriginEast(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
               placeholder={'e.g. '.concat('1'.repeat(precision))}
             />
           </label>
@@ -375,7 +375,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
             <input
               value={originNorth}
               onChange={(event) => setOriginNorth(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
               placeholder={'e.g. '.concat('1'.repeat(precision))}
             />
           </label>
@@ -394,7 +394,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+      <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-300">Convert</h3>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1">
@@ -402,7 +402,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
             <input
               value={targetEast}
               onChange={(event) => setTargetEast(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
               placeholder={'e.g. '.concat('2'.repeat(precision))}
             />
           </label>
@@ -411,7 +411,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
             <input
               value={targetNorth}
               onChange={(event) => setTargetNorth(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
               placeholder={'e.g. '.concat('3'.repeat(precision))}
             />
           </label>
@@ -419,7 +419,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
         <div className="mt-3 flex items-center justify-between">
           <button
             type="button"
-            className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/10"
+            className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-900"
             onClick={resolveGridReference}
           >
             Preview location
@@ -429,7 +429,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
           </span>
         </div>
         {resolvedLocation && (
-          <div className="mt-3 rounded-md border border-slate-800 bg-slate-900/60 p-3 text-[11px] text-slate-200">
+          <div className="mt-3 rounded-md border border-slate-800 bg-slate-900 p-3 text-[11px] text-slate-200">
             <p className="font-semibold text-sky-200">Resolved coordinates</p>
             <p className="mt-1 text-slate-300">
               Lat {formatLatLng(resolvedLocation.lat)} | Lng {formatLatLng(resolvedLocation.lng)}
@@ -437,21 +437,21 @@ const GridTools = ({ userLocation, selectedPosition }) => {
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                className="rounded-md border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/10"
+                className="rounded-md border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-900"
                 onClick={() => handleCreate('start', resolvedLocation, 'grid reference')}
               >
                 Set start
               </button>
               <button
                 type="button"
-                className="rounded-md border border-orange-500 px-3 py-1 text-[11px] font-semibold text-orange-200 hover:bg-orange-500/10"
+                className="rounded-md border border-orange-500 px-3 py-1 text-[11px] font-semibold text-orange-200 hover:bg-orange-900"
                 onClick={() => handleCreate('end', resolvedLocation, 'grid reference')}
               >
                 Set end
               </button>
               <button
                 type="button"
-                className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/10"
+                className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-900"
                 onClick={() => handleCreate('checkpoint', resolvedLocation, 'grid reference')}
               >
                 Add checkpoint
@@ -461,7 +461,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
         )}
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+      <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-300">
           Project by bearing
         </h3>
@@ -476,7 +476,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
               setBearingSource(event.target.value);
               setStatusMessage(null);
             }}
-            className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
           >
             <option value="user" disabled={!userLocation}>
               My location {userLocation ? '' : '(fix pending)'}
@@ -498,7 +498,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
               <input
                 value={bearingManualLat}
                 onChange={(event) => setBearingManualLat(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
                 placeholder="e.g. 45.123456"
               />
             </label>
@@ -507,7 +507,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
               <input
                 value={bearingManualLng}
                 onChange={(event) => setBearingManualLng(event.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
                 placeholder="e.g. -75.987654"
               />
             </label>
@@ -520,7 +520,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
             <input
               value={bearingValue}
               onChange={(event) => setBearingValue(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
               placeholder={bearingUnitInput === 'degrees' ? '0 — 360°' : '0 — 6400 mil'}
             />
           </label>
@@ -559,7 +559,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
             <input
               value={distanceInput}
               onChange={(event) => setDistanceInput(event.target.value)}
-              className="rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
               placeholder="e.g. 250"
             />
           </label>
@@ -575,7 +575,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
         <div className="mt-3 flex items-center justify-between">
           <button
             type="button"
-            className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/10"
+            className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-900"
             onClick={projectBearingLocation}
           >
             Project location
@@ -586,7 +586,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
         </div>
 
         {bearingLocation && (
-          <div className="mt-3 rounded-md border border-slate-800 bg-slate-900/60 p-3 text-[11px] text-slate-200">
+          <div className="mt-3 rounded-md border border-slate-800 bg-slate-900 p-3 text-[11px] text-slate-200">
             <p className="font-semibold text-sky-200">Projected coordinates</p>
             <p className="mt-1 text-slate-300">
               Lat {formatLatLng(bearingLocation.lat)} | Lng {formatLatLng(bearingLocation.lng)}
@@ -607,21 +607,21 @@ const GridTools = ({ userLocation, selectedPosition }) => {
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                className="rounded-md border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/10"
+                className="rounded-md border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-900"
                 onClick={() => handleCreate('start', bearingLocation, 'bearing projection')}
               >
                 Set start
               </button>
               <button
                 type="button"
-                className="rounded-md border border-orange-500 px-3 py-1 text-[11px] font-semibold text-orange-200 hover:bg-orange-500/10"
+                className="rounded-md border border-orange-500 px-3 py-1 text-[11px] font-semibold text-orange-200 hover:bg-orange-900"
                 onClick={() => handleCreate('end', bearingLocation, 'bearing projection')}
               >
                 Set end
               </button>
               <button
                 type="button"
-                className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-500/10"
+                className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-900"
                 onClick={() => handleCreate('checkpoint', bearingLocation, 'bearing projection')}
               >
                 Add checkpoint
@@ -632,7 +632,7 @@ const GridTools = ({ userLocation, selectedPosition }) => {
       </div>
 
       {(errorMessage || statusMessage) && (
-        <div className="rounded-md border border-slate-800 bg-slate-950/70 p-3 text-[11px]">
+        <div className="rounded-md border border-slate-800 bg-slate-950 p-3 text-[11px]">
           {errorMessage && <p className="text-rose-400">{errorMessage}</p>}
           {statusMessage && <p className="text-emerald-300">{statusMessage}</p>}
         </div>

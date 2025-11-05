@@ -232,17 +232,17 @@ const MapPage = () => {
 
       {activeOverlay === 'compass' && (
         <div
-          className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900/95 p-3 shadow-2xl shadow-slate-950/80 md:bottom-6 md:left-auto md:right-6 md:max-w-sm md:rounded-2xl"
+          className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950/80 md:bottom-6 md:left-auto md:right-6 md:max-w-sm md:rounded-2xl"
           style={overlaySheetStyle}
         >
           <div className="mb-3 flex justify-center md:hidden">
             <button
               type="button"
-              className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900/70 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800/80 touch-none"
+              className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800 touch-none"
               aria-label="Resize panel"
               onPointerDown={handleOverlayResizeStart}
             >
-              <span className="block h-2 w-16 rounded-full bg-slate-500/90 transition group-active:bg-slate-300/90" />
+              <span className="block h-2 w-16 rounded-full bg-slate-500 transition group-active:bg-slate-300" />
             </button>
           </div>
           <div className="mb-2 flex items-center justify-between text-[11px]">
@@ -281,17 +281,17 @@ const MapPage = () => {
 
       {activeOverlay === 'checkpoints' && (
         <div
-          className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900/95 p-3 shadow-2xl shadow-slate-950/80 md:left-6 md:right-auto md:top-6 md:max-w-xs md:rounded-2xl md:rounded-bl-none md:rounded-br-xl"
+          className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950/80 md:left-6 md:right-auto md:top-6 md:max-w-xs md:rounded-2xl md:rounded-bl-none md:rounded-br-xl"
           style={overlaySheetStyle}
         >
           <div className="mb-3 flex justify-center md:hidden">
             <button
               type="button"
-              className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900/70 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800/80 touch-none"
+              className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800 touch-none"
               aria-label="Resize panel"
               onPointerDown={handleOverlayResizeStart}
             >
-              <span className="block h-2 w-16 rounded-full bg-slate-500/90 transition group-active:bg-slate-300/90" />
+              <span className="block h-2 w-16 rounded-full bg-slate-500 transition group-active:bg-slate-300" />
             </button>
           </div>
           <div className="mb-2 flex items-center justify-between text-[11px]">
@@ -313,17 +313,17 @@ const MapPage = () => {
 
       {activeOverlay === 'grid' && (
         <div
-          className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900/95 p-3 shadow-2xl shadow-slate-950/80 md:left-auto md:right-6 md:top-6 md:max-w-md md:rounded-2xl"
+          className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950/80 md:left-auto md:right-6 md:top-6 md:max-w-md md:rounded-2xl"
           style={overlaySheetStyle}
         >
           <div className="mb-3 flex justify-center md:hidden">
             <button
               type="button"
-              className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900/70 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800/80 touch-none"
+              className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800 touch-none"
               aria-label="Resize panel"
               onPointerDown={handleOverlayResizeStart}
             >
-              <span className="block h-2 w-16 rounded-full bg-slate-500/90 transition group-active:bg-slate-300/90" />
+              <span className="block h-2 w-16 rounded-full bg-slate-500 transition group-active:bg-slate-300" />
             </button>
           </div>
           <div className="mb-2 flex items-center justify-between text-[11px]">
@@ -345,44 +345,62 @@ const MapPage = () => {
 
       {isMenuOpen && (
         <div className="pointer-events-auto absolute inset-x-0 bottom-28 z-[1300] flex justify-center px-4 md:bottom-32">
-          <div className="w-full max-w-xs rounded-2xl border border-slate-800 bg-slate-950/92 p-3 text-[12px] text-slate-100 shadow-xl shadow-slate-950/80">
+          <div className="w-full max-w-xs rounded-2xl border border-slate-800 bg-slate-950 p-3 text-[12px] text-slate-100 shadow-xl shadow-slate-950/80">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Navigate</p>
             <div className="flex flex-col gap-2">
               <button
                 type="button"
                 className={`flex items-center justify-between rounded-lg border px-3 py-2 font-semibold transition ${
                   activeOverlay === 'compass'
-                    ? 'border-sky-500 bg-sky-500/20 text-sky-100'
-                    : 'border-slate-700 bg-slate-900/80 hover:border-sky-500 hover:text-sky-100'
+                    ? 'border-sky-500 bg-sky-500 text-slate-950'
+                    : 'border-slate-700 bg-slate-900 hover:border-sky-500 hover:text-sky-100'
                 }`}
                 onClick={() => openOverlay('compass')}
               >
                 Compass
-                <span className="text-[10px] text-slate-400">Heading</span>
+                <span
+                  className={`text-[10px] ${
+                    activeOverlay === 'compass' ? 'text-slate-800' : 'text-slate-400'
+                  }`}
+                >
+                  Heading
+                </span>
               </button>
               <button
                 type="button"
                 className={`flex items-center justify-between rounded-lg border px-3 py-2 font-semibold transition ${
                   activeOverlay === 'checkpoints'
-                    ? 'border-sky-500 bg-sky-500/20 text-sky-100'
-                    : 'border-slate-700 bg-slate-900/80 hover:border-sky-500 hover:text-sky-100'
+                    ? 'border-sky-500 bg-sky-500 text-slate-950'
+                    : 'border-slate-700 bg-slate-900 hover:border-sky-500 hover:text-sky-100'
                 }`}
                 onClick={() => openOverlay('checkpoints')}
               >
                 Route
-                <span className="text-[10px] text-slate-400">Checkpoints</span>
+                <span
+                  className={`text-[10px] ${
+                    activeOverlay === 'checkpoints' ? 'text-slate-800' : 'text-slate-400'
+                  }`}
+                >
+                  Checkpoints
+                </span>
               </button>
               <button
                 type="button"
                 className={`flex items-center justify-between rounded-lg border px-3 py-2 font-semibold transition ${
                   activeOverlay === 'grid'
-                    ? 'border-sky-500 bg-sky-500/20 text-sky-100'
-                    : 'border-slate-700 bg-slate-900/80 hover:border-sky-500 hover:text-sky-100'
+                    ? 'border-sky-500 bg-sky-500 text-slate-950'
+                    : 'border-slate-700 bg-slate-900 hover:border-sky-500 hover:text-sky-100'
                 }`}
                 onClick={() => openOverlay('grid')}
               >
                 Grid
-                <span className="text-[10px] text-slate-400">Conversions</span>
+                <span
+                  className={`text-[10px] ${
+                    activeOverlay === 'grid' ? 'text-slate-800' : 'text-slate-400'
+                  }`}
+                >
+                  Conversions
+                </span>
               </button>
             </div>
             <p className="mt-3 text-[11px] text-slate-400">
