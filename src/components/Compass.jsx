@@ -14,7 +14,6 @@ const Compass = ({
   bearing,
   distance,
   error,
-  onCalibrate,
   onEnableLocation,
   needsPermission,
   isSupported,
@@ -32,13 +31,6 @@ const Compass = ({
     [heading, bearing]
   );
 
-  const calibrateLabel = needsPermission ? 'Enable Compass' : 'Calibrate';
-  const handleCalibrate = () => {
-    if (typeof onCalibrate === 'function') {
-      onCalibrate();
-    }
-  };
-
   const handleEnableLocation = () => {
     if (typeof onEnableLocation === 'function') {
       onEnableLocation();
@@ -52,7 +44,6 @@ const Compass = ({
   })();
 
   const locationButtonDisabled = isRequestingLocation || hasLocationFix;
-  const calibrateDisabled = !isSupported && !needsPermission;
   const toggleDisabled = typeof onToggleBearingUnit !== 'function';
   const canSelectTargets = typeof onSelectTarget === 'function';
 
@@ -122,14 +113,6 @@ const Compass = ({
             disabled={locationButtonDisabled}
           >
             {locationButtonLabel}
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-700 hover:text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={handleCalibrate}
-            disabled={calibrateDisabled}
-          >
-            {calibrateLabel}
           </button>
           <button
             type="button"

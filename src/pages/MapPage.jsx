@@ -269,7 +269,6 @@ const MapPage = () => {
             bearing={bearing}
             distance={distance}
             error={error}
-            onCalibrate={requestPermission}
             onEnableLocation={handleEnableLocation}
             needsPermission={needsPermission}
             isSupported={isSupported}
