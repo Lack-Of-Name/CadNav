@@ -16,9 +16,20 @@ const setSelectedId = (state, fallbackId) => ({
   selectedId: fallbackId ?? state.selectedId
 });
 
+const normalizePlacementMode = (mode) => {
+  if (mode == null) return null;
+  if (typeof mode === 'string') {
+    return { type: mode };
+  }
+  if (typeof mode === 'object' && typeof mode.type === 'string') {
+    return mode;
+  }
+  return null;
+};
+
 export const useCheckpointsStore = create((set, get) => ({
   ...initialState,
-  setPlacementMode: (mode) => set({ placementMode: mode }),
+  setPlacementMode: (mode) => set({ placementMode: normalizePlacementMode(mode) }),
   toggleConnectMode: () =>
     set((state) => ({
       connectVia: state.connectVia === 'direct' ? 'route' : 'direct'
@@ -37,17 +48,24 @@ export const useCheckpointsStore = create((set, get) => ({
       selectedId: 'end',
       checkpoints: state.checkpoints
     })),
-  addCheckpoint: (position) =>
-    set((state) => ({
-      checkpoints: [
-        ...state.checkpoints,
-        {
-          id: createId('checkpoint'),
-          position
-        }
-      ],
-      placementMode: null
-    })),
+  addCheckpoint: (position, insertIndex) =>
+    set((state) => {
+      const newCheckpoint = {
+        id: createId('checkpoint'),
+        position
+      };
+      const checkpoints = Array.isArray(state.checkpoints) ? [...state.checkpoints] : [];
+      if (typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex <= checkpoints.length) {
+        checkpoints.splice(insertIndex, 0, newCheckpoint);
+      } else {
+        checkpoints.push(newCheckpoint);
+      }
+      return {
+        checkpoints,
+        placementMode: null,
+        selectedId: newCheckpoint.id
+      };
+    }),
   selectCheckpoint: (id) => set({ selectedId: id }),
   updateCheckpoint: (id, position) =>
     set((state) => ({
@@ -55,13 +73,30 @@ export const useCheckpointsStore = create((set, get) => ({
         checkpoint.id === id ? { ...checkpoint, position } : checkpoint
       )
     })),
+  moveCheckpoint: (id, targetIndex) =>
+    set((state) => {
+      const checkpoints = Array.isArray(state.checkpoints) ? [...state.checkpoints] : [];
+      const currentIndex = checkpoints.findIndex((checkpoint) => checkpoint.id === id);
+      if (currentIndex === -1 || typeof targetIndex !== 'number') {
+        return state;
+      }
+      if (targetIndex < 0 || targetIndex >= checkpoints.length || targetIndex === currentIndex) {
+        return state;
+      }
+      const [checkpoint] = checkpoints.splice(currentIndex, 1);
+      checkpoints.splice(targetIndex, 0, checkpoint);
+      return {
+        checkpoints
+      };
+    }),
   removeCheckpoint: (id) =>
     set((state) => {
       const checkpoints = state.checkpoints.filter((checkpoint) => checkpoint.id !== id);
       const selectedId = state.selectedId === id ? null : state.selectedId;
       return {
         checkpoints,
-        selectedId
+        selectedId,
+        placementMode: null
       };
     }),
   clearAll: () => set(initialState)

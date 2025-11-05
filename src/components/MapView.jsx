@@ -198,8 +198,7 @@ const helpSections = [
     description:
       'Allow location access, choose a base map that fits the terrain, and tap on the map to place the start and finish markers.',
     points: [
-      'Use the "Center map on my location" control to snap to your current position.',
-      'Tap the placement tools to add Start, End, or intermediate checkpoints directly on the map.',
+      'Tap the placement tools under the Route tab to add Start, End, or intermediate checkpoints onto the map.',
       'Switch between the light and night toolbar themes for readability in different lighting conditions.'
     ]
   },
@@ -207,11 +206,11 @@ const helpSections = [
     id: 'toolbar',
     title: 'Toolbar buttons',
     description:
-      'Each button in the floating toolbar opens a mission tool. All tools can be accessed from the Menu button as well.',
+      'Each button in the floating toolbar opens a tool. All tools can also be accessed from the Menu button.',
     points: [
-      'Menu toggles the quick actions panel where you can jump to Compass, Route, or Grid overlays.',
+      'Menu toggles the quick actions panel where you can jump to Compass, Route, or Grid tools.',
       'Compass opens the heading overlay showing bearings to your selected checkpoint.',
-      'Route leads to the checkpoint manager where you can reorder, drag, or remove checkpoints.'
+      'Route leads to the checkpoint manager where you can add or remove checkpoints.'
     ]
   },
   {
@@ -220,21 +219,10 @@ const helpSections = [
     description:
       'Different base layers emphasise different features. Pick the layer that best supports the task at hand.',
     points: [
-      'OpenStreetMap Street is the fallback layer and works reliably online and offline.',
+      'OpenStreetMap Street is the fallback layer and works reliably online or with low mobile reception.',
       'Carto Light or Dark provide high-contrast styling that is easier to read in bright sun or at night.',
-      'OpenTopoMap is ideal for land navigation exercises where contours and terrain shading matter.',
-      'Esri Satellite is best for visual reconnaissance; cache imagery ahead of time if you need it offline.'
-    ]
-  },
-  {
-    id: 'tips',
-    title: 'Mission tips',
-    description:
-      'Keep your checkpoint list tidy and double-check headings before moving to the next leg.',
-    points: [
-      'Drag checkpoints directly on the map to refine their positions with precision.',
-      'Use the Connect mode toggle to compare straight-line routes with routed paths.',
-      'If the map ever looks stale after switching layers, tap “Center map on my location” to recalibrate.'
+      'OpenTopoMap is ideal for land navigation where contours and terrain shading matter.',
+      'Esri Satellite is ideal when you need to see real details, but is heavy on mobile data.'
     ]
   }
 ];
@@ -303,13 +291,19 @@ const PlacementHandler = () => {
     click: (event) => {
       if (!placementMode) return;
 
+      const mode =
+        typeof placementMode === 'string' ? { type: placementMode } : placementMode;
+      if (!mode?.type) return;
+
       const { latlng } = event;
-      if (placementMode === 'start') {
+      if (mode.type === 'start') {
         setStart({ lat: latlng.lat, lng: latlng.lng });
-      } else if (placementMode === 'end') {
+      } else if (mode.type === 'end') {
         setEnd({ lat: latlng.lat, lng: latlng.lng });
-      } else if (placementMode === 'checkpoint') {
-        addCheckpoint({ lat: latlng.lat, lng: latlng.lng });
+      } else if (mode.type === 'checkpoint') {
+        const insertIndex =
+          typeof mode.insertIndex === 'number' ? mode.insertIndex : undefined;
+        addCheckpoint({ lat: latlng.lat, lng: latlng.lng }, insertIndex);
       }
       setPlacementMode(null);
     }
