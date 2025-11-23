@@ -388,6 +388,8 @@ const MapView = ({
   toolbarTheme = 'light',
   onToolbarThemeToggle,
   isMenuOpen = false,
+  isSettingsOpen = false,
+  onToggleSettings,
   previewLocation,
   onDropItem,
   hideToolbar = false
@@ -414,7 +416,6 @@ const MapView = ({
   const [cacheStatus, setCacheStatus] = useState(null);
   const [isCaching, setIsCaching] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsView, setSettingsView] = useState('settings');
   const [tileLayerReloadKey, setTileLayerReloadKey] = useState(0);
   const [shareCopyState, setShareCopyState] = useState(null);
@@ -735,10 +736,9 @@ const MapView = ({
 
   useEffect(() => {
     if (isMenuOpen) {
-      setIsSettingsOpen(false);
       setSettingsView('settings');
     }
-  }, [isMenuOpen, setIsSettingsOpen, setSettingsView]);
+  }, [isMenuOpen, setSettingsView]);
 
   useEffect(() => {
     if (!isMapReady || typeof window === 'undefined') return;
@@ -866,7 +866,6 @@ const MapView = ({
   }, [onEnableLocation]);
 
   const handleToggleMenu = useCallback(() => {
-    setIsSettingsOpen(false);
     if (typeof onToggleMenu === 'function') {
       onToggleMenu();
     }
@@ -1030,33 +1029,25 @@ const MapView = ({
   }, [baseLayer, checkpoints, end, isMapReady, showCacheStatus, start, tileProvider.subdomains, tileProvider.url, userLocation]);
 
   const handleToggleSettings = useCallback(() => {
-    const willOpen = !isSettingsOpen;
-    if (willOpen && isMenuOpen && typeof onToggleMenu === 'function') {
-      onToggleMenu();
+    if (typeof onToggleSettings === 'function') {
+      onToggleSettings();
     }
-    setIsSettingsOpen((current) => {
-      const next = !current;
-      if (!current || !next) {
-        setSettingsView('settings');
-      }
-      return next;
-    });
-  }, [isMenuOpen, isSettingsOpen, onToggleMenu, setSettingsView]);
+    setSettingsView('settings');
+  }, [onToggleSettings]);
 
   const handleOpenHelpView = useCallback(() => {
     setSettingsView('help');
-    setIsSettingsOpen(true);
-  }, [setIsSettingsOpen, setSettingsView]);
+    if (!isSettingsOpen && typeof onToggleSettings === 'function') {
+      onToggleSettings();
+    }
+  }, [isSettingsOpen, onToggleSettings]);
 
   const handleOpenShareView = useCallback(() => {
-    if (!isSettingsOpen) {
-      if (isMenuOpen && typeof onToggleMenu === 'function') {
-        onToggleMenu();
-      }
-      setIsSettingsOpen(true);
+    if (!isSettingsOpen && typeof onToggleSettings === 'function') {
+      onToggleSettings();
     }
     setSettingsView('share');
-  }, [isMenuOpen, isSettingsOpen, onToggleMenu, setIsSettingsOpen, setSettingsView]);
+  }, [isSettingsOpen, onToggleSettings]);
 
   const handleToolbarThemeChange = useCallback(() => {
     if (typeof onToolbarThemeToggle === 'function') {
@@ -1067,7 +1058,9 @@ const MapView = ({
   const handleCenterOnUser = useCallback(() => {
     if (userLocation) {
       recenterMap();
-      setIsSettingsOpen(false);
+      if (isSettingsOpen && typeof onToggleSettings === 'function') {
+        onToggleSettings();
+      }
       setSettingsView('settings');
       return;
     }
@@ -1077,7 +1070,7 @@ const MapView = ({
     } else {
       showCacheStatus('Requesting location fix…', 'info', 2500);
     }
-  }, [handleEnableLocation, recenterMap, setIsSettingsOpen, setSettingsView, showCacheStatus, userLocation]);
+  }, [handleEnableLocation, recenterMap, isSettingsOpen, onToggleSettings, showCacheStatus, userLocation]);
 
   const cacheDisabled = baseLayer !== 'satellite' || isCaching;
   const cacheButtonLabel = isCaching ? 'Caching…' : baseLayer !== 'satellite' ? 'Satellite required' : 'Cache tiles';
@@ -1407,7 +1400,9 @@ const MapView = ({
             style={{ backgroundColor: 'rgba(2, 6, 23, 0.45)' }}
             aria-label="Close settings"
             onClick={() => {
-              setIsSettingsOpen(false);
+              if (typeof onToggleSettings === 'function') {
+                onToggleSettings();
+              }
               setSettingsView('settings');
             }}
           />
@@ -1435,7 +1430,9 @@ const MapView = ({
                 type="button"
                 className={themeStyles.panelButton}
                 onClick={() => {
-                  setIsSettingsOpen(false);
+                  if (typeof onToggleSettings === 'function') {
+                    onToggleSettings();
+                  }
                   setSettingsView('settings');
                 }}
               >

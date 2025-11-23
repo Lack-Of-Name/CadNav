@@ -78,6 +78,7 @@ const MapPage = () => {
 
   const [activeOverlay, setActiveOverlay] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [locationRequestToken, setLocationRequestToken] = useState(0);
   const [bearingUnit, setBearingUnit] = useState('degrees');
   const [baseLayer, setBaseLayer] = useState('topo');
@@ -111,13 +112,32 @@ const MapPage = () => {
   }, []);
 
   const toggleMenu = useCallback(() => {
-    setIsMenuOpen((prev) => !prev);
+    setIsMenuOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setActiveOverlay(null);
+        setIsSettingsOpen(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSettings = useCallback(() => {
+    setIsSettingsOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setActiveOverlay(null);
+        setIsMenuOpen(false);
+      }
+      return next;
+    });
   }, []);
 
   const openOverlay = useCallback(
     (overlayId) => {
       setActiveOverlay((prev) => (prev === overlayId ? null : overlayId));
       setIsMenuOpen(false);
+      setIsSettingsOpen(false);
       setOverlayHeight((current) => clampOverlay(current));
     },
     [clampOverlay]
@@ -263,6 +283,8 @@ const MapPage = () => {
         toolbarTheme={toolbarTheme}
         onToolbarThemeToggle={handleToolbarThemeToggle}
         isMenuOpen={isMenuOpen}
+        isSettingsOpen={isSettingsOpen}
+        onToggleSettings={toggleSettings}
         previewLocation={previewLocation}
         onDropItem={handleDropItem}
         hideToolbar={isPlacingMode}
