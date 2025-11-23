@@ -24,8 +24,18 @@ const CheckpointList = ({ onEnterPlacingMode }) => {
   } = useCheckpoints();
 
   const handleDragStart = (entry) => (e) => {
+    // Only allow drag if the handle was touched/clicked
+    if (!e.target.closest('.drag-handle')) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.setData('application/x-cadet-map-checkpoint-id', entry.id);
     e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
   };
 
   const handleDragOver = (e) => {
@@ -222,25 +232,33 @@ const CheckpointList = ({ onEnterPlacingMode }) => {
             key={entry.id}
             draggable
             onDragStart={handleDragStart(entry)}
+            onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
             onDrop={handleDrop(entry)}
-            className={`rounded-md border px-3 py-2 transition touch-none ${
+            className={`flex items-start gap-2 rounded-md border px-3 py-2 transition touch-none ${
               selectedId === entry.id
                 ? "border-sky-500 bg-sky-900 text-sky-100"
                 : "cursor-pointer border-slate-800 hover:border-slate-600 hover:bg-slate-800"
             }`}
             onClick={() => selectCheckpoint(entry.id)}
           >
-            <div className="font-semibold">{entry.label}</div>
-            <div className="text-xs text-slate-400">
-              {entry.position.lat.toFixed(4)}, {entry.position.lng.toFixed(4)}
+            <div className="drag-handle mt-1 cursor-grab p-1 text-slate-500 hover:text-slate-300 active:cursor-grabbing">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path fillRule="evenodd" d="M10 3a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM10 8.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM11.5 15.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" clipRule="evenodd" />
+              </svg>
             </div>
-            {entry.callout && (
-              <div className="text-[11px] font-mono uppercase text-amber-300">
-                Callout: {entry.callout}
+            <div className="flex-1">
+              <div className="font-semibold">{entry.label}</div>
+              <div className="text-xs text-slate-400">
+                {entry.position.lat.toFixed(4)}, {entry.position.lng.toFixed(4)}
               </div>
-            )}
-            {renderActions(entry)}
+              {entry.callout && (
+                <div className="text-[11px] font-mono uppercase text-amber-300">
+                  Callout: {entry.callout}
+                </div>
+              )}
+              {renderActions(entry)}
+            </div>
           </li>
         ))}
       </ul>

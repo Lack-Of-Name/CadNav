@@ -99,9 +99,10 @@ const ToolbarButton = ({
         <img
           src={iconSrc}
           alt=""
-          className={`h-5 w-5 object-contain ${iconClassName}`}
+          className={`h-5 w-5 object-contain select-none ${iconClassName}`}
           style={iconStyle ?? undefined}
           aria-hidden="true"
+          draggable="false"
         />
       ) : (
         <span className="text-[11px] font-semibold uppercase tracking-wide">{label}</span>
