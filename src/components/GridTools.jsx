@@ -42,7 +42,7 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
     setPrecision,
     resetGrid
   } = useGrid();
-  const { setStart, setEnd, addCheckpoint } = useCheckpoints();
+  const { addCheckpoint } = useCheckpoints();
 
   const [originEast, setOriginEast] = useState('');
   const [originNorth, setOriginNorth] = useState('');
@@ -239,21 +239,13 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
     }
   };
 
-  const handleCreate = (mode, location = resolvedLocation, context = 'grid reference') => {
+  const handleCreate = (location = resolvedLocation, context = 'grid reference') => {
     if (!location) {
       setErrorMessage(`Resolve a ${context} first.`);
       return;
     }
-    if (mode === 'start') {
-      setStart(location);
-      setStatusMessage(`Start updated from ${context}.`);
-    } else if (mode === 'end') {
-      setEnd(location);
-      setStatusMessage(`End updated from ${context}.`);
-    } else {
-      addCheckpoint(location);
-      setStatusMessage(`Checkpoint added from ${context}.`);
-    }
+    addCheckpoint(location);
+    setStatusMessage(`Checkpoint added from ${context}.`);
     setErrorMessage(null);
   };
 
@@ -440,8 +432,8 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
               <p className="mb-1 font-semibold text-sky-200">How to convert:</p>
               <p className="text-slate-400">
                 Once you have calibrated the origin, you can enter any other grid reference here. The
-                app will calculate the offset from the origin and show you exactly where that point
-                is on the map.
+                app will calculate the offset from the origin, show you where that point lands, and
+                the "Add checkpoint" button will drop it into your active route.
               </p>
             </div>
           )}
@@ -487,22 +479,8 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="rounded-md border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-900"
-                  onClick={() => handleCreate('start', resolvedLocation, 'grid reference')}
-                >
-                  Set start
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-orange-500 px-3 py-1 text-[11px] font-semibold text-orange-200 hover:bg-orange-900"
-                  onClick={() => handleCreate('end', resolvedLocation, 'grid reference')}
-                >
-                  Set end
-                </button>
-                <button
-                  type="button"
                   className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-900"
-                  onClick={() => handleCreate('checkpoint', resolvedLocation, 'grid reference')}
+                  onClick={() => handleCreate(resolvedLocation, 'grid reference')}
                 >
                   Add checkpoint
                 </button>
@@ -531,9 +509,9 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
             <div className="mb-4 rounded-lg bg-slate-900 p-2 text-[11px] text-slate-300">
               <p className="mb-1 font-semibold text-sky-200">How to project:</p>
               <ol className="list-decimal space-y-1 pl-4 text-slate-400">
-                <li>Choose a start point (your location or a selected marker).</li>
+                <li>Choose a start point (your current GPS fix or a checkpoint you selected on the map).</li>
                 <li>Enter the bearing (direction) and distance to travel.</li>
-                <li>Click 'Project location' to see the destination on the map.</li>
+                <li>Click 'Project location' to see the destination on the map, then use 'Add checkpoint' to store it in the active route.</li>
               </ol>
             </div>
           )}
@@ -665,22 +643,8 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  className="rounded-md border border-emerald-500 px-3 py-1 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-900"
-                  onClick={() => handleCreate('start', bearingLocation, 'bearing projection')}
-                >
-                  Set start
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-orange-500 px-3 py-1 text-[11px] font-semibold text-orange-200 hover:bg-orange-900"
-                  onClick={() => handleCreate('end', bearingLocation, 'bearing projection')}
-                >
-                  Set end
-                </button>
-                <button
-                  type="button"
                   className="rounded-md border border-sky-500 px-3 py-1 text-[11px] font-semibold text-sky-200 hover:bg-sky-900"
-                  onClick={() => handleCreate('checkpoint', bearingLocation, 'bearing projection')}
+                  onClick={() => handleCreate(bearingLocation, 'bearing projection')}
                 >
                   Add checkpoint
                 </button>

@@ -254,21 +254,22 @@ const helpSections = [
     id: 'getting-started',
     title: 'Getting started',
     description:
-      'Allow location access, choose a base map that fits the terrain, and tap on the map to place the start and finish markers.',
+      'Allow location access, pick an active route, then use placement or grid tools to build precise checkpoint lists.',
     points: [
-      'Tap the placement tools under the Route tab to add Start, End, or intermediate checkpoints onto the map.',
-      'Switch between the light and night toolbar themes for readability in different lighting conditions.'
+      'Use the Route tab to manage multiple routes. Click "Add New Route" to start fresh, rename it, and choose a colour for quick identification.',
+      'Tap "Add Checkpoint" inside a route to enter placement mode. Drop the route-coloured puck onto the map or a Grid Tool preview marker to add that position.',
+      'Share progress from the Route tools: copy codes for a single route or use "All Routes" to export the full plan.'
     ]
   },
   {
     id: 'toolbar',
     title: 'Toolbar buttons',
     description:
-      'Each button in the floating toolbar opens a tool. All tools can also be accessed from the Menu button.',
+      'Each button in the floating toolbar opens a tool. The Menu button mirrors these shortcuts, so every tool is reachable even when the bar is hidden.',
     points: [
-      'Menu toggles the quick actions panel where you can jump to Compass, Route, or Grid tools.',
-      'Compass opens the heading overlay showing bearings to your selected checkpoint.',
-      'Route leads to the checkpoint manager where you can add or remove checkpoints.'
+      'Menu toggles quick actions for Compass, Route, Grid, and Share tools without leaving the map.',
+      'Compass opens the heading overlay. Select a target route to get bearings and switch between degrees or mils.',
+      'Route opens the checkpoint manager where you can reorder points, adjust colours, and generate share codes.'
     ]
   },
   {
@@ -340,8 +341,6 @@ const createUserIcon = (heading) =>
 const PlacementHandler = () => {
   const {
     placementMode,
-    setStart,
-    setEnd,
     addCheckpoint,
     setPlacementMode
   } = useCheckpoints();
@@ -355,11 +354,7 @@ const PlacementHandler = () => {
       if (!mode?.type) return;
 
       const { latlng } = event;
-      if (mode.type === 'start') {
-        setStart({ lat: latlng.lat, lng: latlng.lng });
-      } else if (mode.type === 'end') {
-        setEnd({ lat: latlng.lat, lng: latlng.lng });
-      } else if (mode.type === 'checkpoint') {
+      if (mode.type === 'checkpoint') {
         const insertIndex =
           typeof mode.insertIndex === 'number' ? mode.insertIndex : undefined;
         addCheckpoint({ lat: latlng.lat, lng: latlng.lng }, insertIndex);
@@ -395,9 +390,10 @@ const MapView = ({
   hideToolbar = false
 }) => {
   const {
-    start,
-    end,
-    checkpoints,
+    checkpoints, // Active route checkpoints (legacy support)
+    checkpointMap,
+    routes,
+    activeRouteId,
     connectVia,
     selectedId,
     selectCheckpoint,
@@ -406,8 +402,6 @@ const MapView = ({
     toggleConnectMode,
     loadRouteSnapshot,
     placementMode,
-    setStart,
-    setEnd,
     addCheckpoint
   } = useCheckpoints();
   const mapRef = useRef(null);
@@ -455,9 +449,16 @@ const MapView = ({
     []
   );
 
+  const [shareScope, setShareScope] = useState('all'); // 'all' or routeId
+
+  const shareTargetRoutes = useMemo(
+    () => (shareScope === 'all' ? routes : routes.filter((r) => r.id === shareScope)),
+    [routes, shareScope]
+  );
+
   const shareSnapshot = useMemo(
-    () => buildRouteShareSnapshot({ start, end, checkpoints, connectVia }),
-    [start, end, checkpoints, connectVia]
+    () => buildRouteShareSnapshot({ checkpointMap, routes: shareTargetRoutes, connectVia }),
+    [checkpointMap, shareTargetRoutes, connectVia]
   );
 
   const shareCode = useMemo(
@@ -468,7 +469,6 @@ const MapView = ({
   const shareSummaryText = useMemo(() => {
     if (!shareSnapshot) return null;
     const segments = [];
-    if (shareSnapshot.start) segments.push('start');
     if (shareSnapshot.checkpoints.length > 0) {
       segments.push(
         `${shareSnapshot.checkpoints.length} checkpoint${
@@ -476,7 +476,13 @@ const MapView = ({
         }`
       );
     }
-    if (shareSnapshot.end) segments.push('end');
+    if (shareSnapshot.routes && shareSnapshot.routes.length > 0) {
+      segments.push(
+        `${shareSnapshot.routes.length} route${
+          shareSnapshot.routes.length === 1 ? '' : 's'
+        }`
+      );
+    }
     const includes = segments.length ? `Includes ${segments.join(', ')}. ` : '';
     const connectionText =
       shareSnapshot.connectVia === 'route'
@@ -488,39 +494,29 @@ const MapView = ({
   const hasShareCode = Boolean(shareCode);
 
   const shareLocationCodes = useMemo(() => {
-    if (!shareSnapshot) return [];
-    const codes = [];
-    if (shareSnapshot.start) {
-      codes.push({
-        key: 'start',
-        label: 'Start',
-        code: encodeLocationCode(shareSnapshot.start),
-        position: shareSnapshot.start
-      });
-    }
-    shareSnapshot.checkpoints.forEach((checkpoint, index) => {
-      codes.push({
-        key: `checkpoint-${index}`,
-        label: `Checkpoint ${index + 1}`,
-        code: encodeLocationCode(checkpoint),
-        position: checkpoint
-      });
-    });
-    if (shareSnapshot.end) {
-      codes.push({
-        key: 'end',
-        label: 'Finish',
-        code: encodeLocationCode(shareSnapshot.end),
-        position: shareSnapshot.end
-      });
-    }
-    return codes.filter((entry) => Boolean(entry.code));
-  }, [shareSnapshot]);
-
-  const formatLocation = useCallback((position) => {
-    if (!position) return '';
-    return `${position.lat.toFixed(4)}, ${position.lng.toFixed(4)}`;
-  }, []);
+    return shareTargetRoutes
+      .map((route) => {
+        const codes = route.items
+          .map((checkpointId, index) => {
+            const checkpoint = checkpointMap[checkpointId];
+            if (!checkpoint) return null;
+            return {
+              key: `${route.id}-${checkpoint.id}`,
+              label: checkpoint.name || `Point ${index + 1}`,
+              code: encodeLocationCode(checkpoint.position),
+              position: checkpoint.position
+            };
+          })
+          .filter(Boolean);
+        if (codes.length === 0) return null;
+        return {
+          route: route.name,
+          color: route.color,
+          codes
+        };
+      })
+      .filter(Boolean);
+  }, [shareTargetRoutes, checkpointMap]);
 
   const getFeedbackToneClass = useCallback((tone) => {
     if (tone === 'success') return 'text-emerald-500';
@@ -930,8 +926,6 @@ const MapView = ({
     const anchors = [];
 
     if (userLocation) anchors.push(userLocation);
-    if (start?.position) anchors.push(start.position);
-    if (end?.position) anchors.push(end.position);
     checkpoints.forEach((checkpoint) => {
       if (checkpoint?.position) anchors.push(checkpoint.position);
     });
@@ -1026,7 +1020,7 @@ const MapView = ({
     } finally {
       setIsCaching(false);
     }
-  }, [baseLayer, checkpoints, end, isMapReady, showCacheStatus, start, tileProvider.subdomains, tileProvider.url, userLocation]);
+  }, [baseLayer, checkpoints, isMapReady, showCacheStatus, tileProvider.subdomains, tileProvider.url, userLocation]);
 
   const handleToggleSettings = useCallback(() => {
     if (typeof onToggleSettings === 'function') {
@@ -1130,19 +1124,11 @@ const MapView = ({
       return;
     }
 
-    if (shareCalloutTarget === 'start') {
-      setStart(position);
-      showShareCalloutFeedback('success', 'Start marker updated from callout.', 3000);
-    } else if (shareCalloutTarget === 'end') {
-      setEnd(position);
-      showShareCalloutFeedback('success', 'End marker updated from callout.', 3000);
-    } else {
-      addCheckpoint(position);
-      showShareCalloutFeedback('success', 'Checkpoint added from callout.', 3000);
-    }
+    addCheckpoint(position);
+    showShareCalloutFeedback('success', 'Checkpoint added from callout.', 3000);
 
     setShareCalloutValue('');
-  }, [addCheckpoint, decodeLocationCode, setEnd, setStart, shareCalloutTarget, shareCalloutValue, showShareCalloutFeedback]);
+  }, [addCheckpoint, decodeLocationCode, shareCalloutValue, showShareCalloutFeedback]);
 
   const settingsToggleClass = useMemo(
     () =>
@@ -1174,15 +1160,45 @@ const MapView = ({
     [settingsView, themeStyles.panelToggle]
   );
 
-  const directPath = useMemo(() => {
-    const path = [];
-    if (start) path.push([start.position.lat, start.position.lng]);
-    checkpoints.forEach((checkpoint) => {
-      path.push([checkpoint.position.lat, checkpoint.position.lng]);
+  const visibleCheckpoints = useMemo(() => {
+    const checkpointData = {};
+    
+    // First pass: add all checkpoints from visible routes
+    routes.filter(r => r.isVisible).forEach(r => {
+      r.items?.forEach(id => {
+        // If not exists, or if this is the active route (override), set it
+        if (!checkpointData[id] || r.id === activeRouteId) {
+           checkpointData[id] = { 
+             checkpoint: checkpointMap[id], 
+             color: r.color,
+             routeId: r.id
+           };
+        }
+      });
     });
-    if (end) path.push([end.position.lat, end.position.lng]);
-    return path;
-  }, [start, checkpoints, end]);
+    
+    return Object.values(checkpointData).filter(d => d.checkpoint);
+  }, [routes, checkpointMap, activeRouteId]);
+
+  const iconCacheRef = useRef(new Map());
+  const getMarkerIcon = useCallback((color) => {
+    if (!iconCacheRef.current.has(color)) {
+      iconCacheRef.current.set(color, createIcon(color, '•'));
+    }
+    return iconCacheRef.current.get(color);
+  }, []);
+
+  const routePaths = useMemo(() => {
+    return routes
+      .filter(r => r.isVisible)
+      .map(route => {
+        const positions = (route.items || [])
+          .map(id => checkpointMap[id]?.position)
+          .filter(Boolean)
+          .map(pos => [pos.lat, pos.lng]);
+        return { id: route.id, color: route.color, positions };
+      });
+  }, [routes, checkpointMap]);
 
   return (
     <div className="relative h-full w-full flex-1">
@@ -1219,41 +1235,15 @@ const MapView = ({
           />
         )}
 
-        {start && (
-          <Marker
-            position={[start.position.lat, start.position.lng]}
-            icon={startIcon}
-            draggable
-            eventHandlers={{
-              click: () => selectCheckpoint('start'),
-              dragend: (event) => {
-                const { lat, lng } = event.target.getLatLng();
-                setStart({ lat, lng });
-              }
-            }}
-          />
-        )}
 
-        {end && (
-          <Marker
-            position={[end.position.lat, end.position.lng]}
-            icon={endIcon}
-            draggable
-            eventHandlers={{
-              click: () => selectCheckpoint('end'),
-              dragend: (event) => {
-                const { lat, lng } = event.target.getLatLng();
-                setEnd({ lat, lng });
-              }
-            }}
-          />
-        )}
 
-        {checkpoints.map((checkpoint) => (
+
+
+        {visibleCheckpoints.map(({ checkpoint, color }) => (
           <Marker
             key={checkpoint.id}
             position={[checkpoint.position.lat, checkpoint.position.lng]}
-            icon={checkpointIcon}
+            icon={getMarkerIcon(color)}
             draggable
             eventHandlers={{
               click: () => selectCheckpoint(checkpoint.id),
@@ -1284,19 +1274,25 @@ const MapView = ({
           </>
         )}
 
-        {connectVia === 'direct' && directPath.length >= 2 && (
-          <Polyline
-            positions={directPath}
-            pathOptions={{ color: '#38bdf8', weight: 4, opacity: 0.7 }}
-          />
-        )}
+        {connectVia === 'direct' && routePaths.map(route => (
+          route.positions.length >= 2 && (
+            <Polyline
+              key={`direct-${route.id}`}
+              positions={route.positions}
+              pathOptions={{ color: route.color, weight: 4, opacity: 0.7 }}
+            />
+          )
+        ))}
 
-        {connectVia === 'route' && directPath.length >= 2 && (
-          <Polyline
-            positions={directPath}
-            pathOptions={{ color: '#f97316', weight: 4, dashArray: '10 6', opacity: 0.8 }}
-          />
-        )}
+        {connectVia === 'route' && routePaths.map(route => (
+          route.positions.length >= 2 && (
+            <Polyline
+              key={`route-${route.id}`}
+              positions={route.positions}
+              pathOptions={{ color: route.color, weight: 4, dashArray: '10 6', opacity: 0.8 }}
+            />
+          )
+        ))}
 
         {userLocation &&
           targets
@@ -1505,6 +1501,23 @@ const MapView = ({
                         Copy code
                       </button>
                     </div>
+                    
+                    {routes.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-[11px] font-semibold opacity-70">Scope:</label>
+                        <select
+                          value={shareScope}
+                          onChange={(e) => setShareScope(e.target.value)}
+                          className={`${shareInputClass} flex-1 rounded-lg px-2 py-1 text-[11px]`}
+                        >
+                          <option value="all">All Routes</option>
+                          {routes.map(r => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     <p className={themeStyles.layerOptionDescription}>
                       {shareSummaryText ?? 'Add at least one waypoint to generate a share code.'}
                     </p>
@@ -1590,10 +1603,9 @@ const MapView = ({
                         className={`${shareInputClass} w-full rounded-xl px-3 py-2 text-[11px]`}
                         value={shareCalloutTarget}
                         onChange={handleShareCalloutTargetChange}
+                        disabled
                       >
                         <option value="checkpoint">Checkpoint</option>
-                        <option value="start">Start</option>
-                        <option value="end">Finish</option>
                       </select>
                     </div>
                     <div className="flex items-center justify-between gap-2">
@@ -1624,17 +1636,25 @@ const MapView = ({
                           Geohash references &asymp;5&nbsp;m accuracy for quick callouts.
                         </p>
                       </div>
-                      <ul className="flex flex-col gap-1 text-[11px] font-mono">
-                        {shareLocationCodes.map((entry) => (
-                          <li key={entry.key} className="flex flex-col">
-                            <span className="font-semibold uppercase tracking-wide text-[10px] opacity-70">
-                              {entry.label}
-                            </span>
-                            <span>{entry.code}</span>
-                            <span className="opacity-60">{formatLocation(entry.position)}</span>
-                          </li>
+                      <div className="flex flex-col gap-3">
+                        {shareLocationCodes.map((group) => (
+                          <div key={group.route} className="flex flex-col gap-1">
+                            <div className="border-b border-slate-700/50 pb-1">
+                              <span className="text-[11px] font-semibold text-slate-300">{group.route}</span>
+                            </div>
+                            <ul className="flex flex-col gap-1 text-[11px] font-mono">
+                              {group.codes.map((entry) => (
+                                <li key={entry.key} className="flex items-center justify-between gap-3 pl-1">
+                                  <span className="font-semibold uppercase tracking-wide text-[10px] opacity-70">
+                                    {entry.label}
+                                  </span>
+                                  <span>{entry.code}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         ))}
-                      </ul>
+                      </div>
                     </section>
                   )}
                 </div>

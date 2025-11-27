@@ -25,7 +25,10 @@ const Compass = ({
   selectedTarget = null,
   onSelectTarget,
   bearingUnit = 'degrees',
-  onToggleBearingUnit
+  onToggleBearingUnit,
+  routes = [],
+  activeRouteId = null,
+  onSelectRoute = null
 }) => {
   const relativeBearing = useMemo(
     () => calculateRelativeBearing(heading, bearing),
@@ -111,6 +114,22 @@ const Compass = ({
 
   return (
     <div className={`flex flex-col items-center gap-4 rounded-2xl bg-slate-900 p-5 text-center shadow-lg shadow-slate-950 ${containerToneClass}`}>
+      {/* Route Selector */}
+      {routes && routes.length > 1 && onSelectRoute && (
+        <div className="w-full max-w-xs">
+          <label className="mb-1 block text-left text-xs font-medium text-slate-400">Target Route</label>
+          <select
+            value={activeRouteId}
+            onChange={(e) => onSelectRoute(e.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:border-sky-500 focus:outline-none"
+          >
+            {routes.map(r => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="flex w-full flex-wrap items-center justify-center gap-2">
         <h2 className="text-base font-semibold text-sky-200">Compass</h2>
         <div className="flex flex-wrap items-center justify-center gap-2">

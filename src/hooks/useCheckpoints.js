@@ -3,19 +3,25 @@ import { normaliseRouteShareSnapshot, ROUTE_SHARE_VERSION } from '../utils/route
 
 const createId = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 
+const DEFAULT_ROUTE_COLOR = '#38bdf8';
+
 const initialState = {
-  start: null,
-  end: null,
-  checkpoints: [],
+  checkpointMap: {}, // { [id]: { id, position } }
+  routes: [
+    {
+      id: 'route-1',
+      name: 'Route 1',
+      color: DEFAULT_ROUTE_COLOR,
+      items: [], // List of checkpoint IDs
+      isVisible: true,
+      nextLabelIndex: 1
+    }
+  ],
+  activeRouteId: 'route-1',
   selectedId: null,
   connectVia: 'direct',
   placementMode: null
 };
-
-const setSelectedId = (state, fallbackId) => ({
-  ...state,
-  selectedId: fallbackId ?? state.selectedId
-});
 
 const normalizePlacementMode = (mode) => {
   if (mode == null) return null;
@@ -30,13 +36,67 @@ const normalizePlacementMode = (mode) => {
 
 export const useCheckpointsStore = create((set, get) => ({
   ...initialState,
+
+  // --- Route Management ---
+
+  addRoute: (name = 'New Route', color = DEFAULT_ROUTE_COLOR) =>
+    set((state) => {
+      const newRoute = {
+        id: createId('route'),
+        name,
+        color,
+        items: [],
+        isVisible: true,
+        nextLabelIndex: 1
+      };
+      return {
+        routes: [...state.routes, newRoute],
+        activeRouteId: newRoute.id
+      };
+    }),
+
+  removeRoute: (routeId) =>
+    set((state) => {
+      if (state.routes.length <= 1) return state; // Prevent removing last route
+      const newRoutes = state.routes.filter((r) => r.id !== routeId);
+      const newActiveId =
+        state.activeRouteId === routeId ? newRoutes[0].id : state.activeRouteId;
+      
+      // Cleanup orphaned checkpoints
+      const usedCheckpointIds = new Set(newRoutes.flatMap((r) => r.items));
+      const newCheckpointMap = {};
+      Object.values(state.checkpointMap).forEach((cp) => {
+        if (usedCheckpointIds.has(cp.id)) {
+          newCheckpointMap[cp.id] = cp;
+        }
+      });
+
+      return {
+        routes: newRoutes,
+        activeRouteId: newActiveId,
+        checkpointMap: newCheckpointMap,
+        selectedId: state.selectedId // Keep selected if it still exists, else it might be invalid but that's handled by UI
+      };
+    }),
+
+  setActiveRoute: (routeId) =>
+    set((state) => ({
+      activeRouteId: state.routes.find((r) => r.id === routeId) ? routeId : state.activeRouteId
+    })),
+
+  updateRoute: (routeId, updates) =>
+    set((state) => ({
+      routes: state.routes.map((r) => (r.id === routeId ? { ...r, ...updates } : r))
+    })),
+
+  // --- Checkpoint Management ---
+
   setPlacementMode: (mode) =>
     set((state) => {
       const normalized = normalizePlacementMode(mode);
       if (!normalized) {
         return { placementMode: null };
       }
-
       const current = normalizePlacementMode(state.placementMode);
       if (
         current?.type === normalized.type &&
@@ -44,156 +104,241 @@ export const useCheckpointsStore = create((set, get) => ({
       ) {
         return { placementMode: null };
       }
-
       return { placementMode: normalized };
     }),
+
   toggleConnectMode: () =>
     set((state) => ({
       connectVia: state.connectVia === 'direct' ? 'route' : 'direct'
     })),
-  setStart: (position) =>
-    set((state) => ({
-      start: { id: 'start', position },
-      placementMode: null,
-      selectedId: 'start',
-      checkpoints: state.checkpoints
-    })),
-  setEnd: (position) =>
-    set((state) => ({
-      end: { id: 'end', position },
-      placementMode: null,
-      selectedId: 'end',
-      checkpoints: state.checkpoints
-    })),
+
   addCheckpoint: (position, insertIndex) =>
     set((state) => {
+      const activeRoute = state.routes.find((r) => r.id === state.activeRouteId);
+      if (!activeRoute) return state;
+
+      const nextLabelIndex =
+        typeof activeRoute.nextLabelIndex === 'number'
+          ? activeRoute.nextLabelIndex
+          : (activeRoute.items?.length ?? 0) + 1;
+
       const newCheckpoint = {
         id: createId('checkpoint'),
-        position
+        position,
+        name: `Point ${nextLabelIndex}`
       };
-      const checkpoints = Array.isArray(state.checkpoints) ? [...state.checkpoints] : [];
-      if (typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex <= checkpoints.length) {
-        checkpoints.splice(insertIndex, 0, newCheckpoint);
+
+      const newCheckpointMap = { ...state.checkpointMap, [newCheckpoint.id]: newCheckpoint };
+      
+      const newItems = [...activeRoute.items];
+      if (typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex <= newItems.length) {
+        newItems.splice(insertIndex, 0, newCheckpoint.id);
       } else {
-        checkpoints.push(newCheckpoint);
+        newItems.push(newCheckpoint.id);
       }
+
+      const updatedRoute = {
+        ...activeRoute,
+        items: newItems,
+        nextLabelIndex: nextLabelIndex + 1
+      };
+
+      const newRoutes = state.routes.map((r) =>
+        r.id === state.activeRouteId ? updatedRoute : r
+      );
+
       return {
-        checkpoints,
+        checkpointMap: newCheckpointMap,
+        routes: newRoutes,
         placementMode: null,
         selectedId: newCheckpoint.id
       };
     }),
+
   selectCheckpoint: (id) => set({ selectedId: id }),
+
   updateCheckpoint: (id, position) =>
     set((state) => ({
-      checkpoints: state.checkpoints.map((checkpoint) =>
-        checkpoint.id === id ? { ...checkpoint, position } : checkpoint
-      )
+      checkpointMap: {
+        ...state.checkpointMap,
+        [id]: { ...state.checkpointMap[id], position }
+      }
     })),
+
   moveCheckpoint: (id, targetIndex) =>
     set((state) => {
-      const checkpoints = Array.isArray(state.checkpoints) ? [...state.checkpoints] : [];
-      const currentIndex = checkpoints.findIndex((checkpoint) => checkpoint.id === id);
-      if (currentIndex === -1 || typeof targetIndex !== 'number') {
+      const activeRoute = state.routes.find((r) => r.id === state.activeRouteId);
+      if (!activeRoute) return state;
+
+      const currentIndex = activeRoute.items.indexOf(id);
+      if (currentIndex === -1 || typeof targetIndex !== 'number') return state;
+      
+      const newItems = [...activeRoute.items];
+      if (targetIndex < 0 || targetIndex >= newItems.length || targetIndex === currentIndex) {
         return state;
       }
-      if (targetIndex < 0 || targetIndex >= checkpoints.length || targetIndex === currentIndex) {
-        return state;
-      }
-      const [checkpoint] = checkpoints.splice(currentIndex, 1);
-      checkpoints.splice(targetIndex, 0, checkpoint);
+
+      // Remove from old position
+      newItems.splice(currentIndex, 1);
+      // Insert at new position
+      newItems.splice(targetIndex, 0, id);
+
       return {
-        checkpoints
+        routes: state.routes.map((r) =>
+          r.id === state.activeRouteId ? { ...r, items: newItems } : r
+        )
       };
     }),
+
   removeCheckpoint: (id) =>
     set((state) => {
-      const checkpoints = state.checkpoints.filter((checkpoint) => checkpoint.id !== id);
-      const selectedId = state.selectedId === id ? null : state.selectedId;
+      // Remove from active route only? Or all routes?
+      // User said "Some checkpoints should be able to be used for multiple routes".
+      // If I click delete on a checkpoint in the list, I expect it to be removed from THAT route.
+      
+      const activeRoute = state.routes.find((r) => r.id === state.activeRouteId);
+      if (!activeRoute) return state;
+
+      // If the ID is not in the active route, maybe we are trying to delete it from the map?
+      // But usually we delete from the list.
+      // If we delete from the map (e.g. clicking the marker and hitting delete), we should probably remove it from ALL routes.
+      // But for now, let's assume we are removing from the active route context.
+      
+      // Wait, if I select a checkpoint on the map, I don't know which route context I'm in unless I check.
+      // If I click "Delete" while a checkpoint is selected, it should probably remove it from the active route if present.
+      
+      const isInActiveRoute = activeRoute.items.includes(id);
+      
+      let newRoutes = state.routes;
+      
+      if (isInActiveRoute) {
+        newRoutes = state.routes.map(r => {
+          if (r.id === state.activeRouteId) {
+            return { ...r, items: r.items.filter(itemId => itemId !== id) };
+          }
+          return r;
+        });
+      } else {
+        // If not in active route, maybe remove from all routes?
+        // Or just do nothing?
+        // Let's remove from all routes to be safe if it was triggered globally.
+        newRoutes = state.routes.map(r => ({
+          ...r,
+          items: r.items.filter(itemId => itemId !== id)
+        }));
+      }
+
+      // Cleanup orphans
+      const usedCheckpointIds = new Set(newRoutes.flatMap((r) => r.items));
+      const newCheckpointMap = {};
+      Object.values(state.checkpointMap).forEach((cp) => {
+        if (usedCheckpointIds.has(cp.id)) {
+          newCheckpointMap[cp.id] = cp;
+        }
+      });
+
       return {
-        checkpoints,
-        selectedId,
+        routes: newRoutes,
+        checkpointMap: newCheckpointMap,
+        selectedId: state.selectedId === id ? null : state.selectedId,
         placementMode: null
       };
     }),
+
   loadRouteSnapshot: (snapshot) =>
     set((state) => {
-      const normalised = normaliseRouteShareSnapshot({
-        version: snapshot?.version ?? ROUTE_SHARE_VERSION,
-        connectVia: snapshot?.connectVia,
-        start: snapshot?.start,
-        end: snapshot?.end,
-        checkpoints: snapshot?.checkpoints
+      const normalised = normaliseRouteShareSnapshot(snapshot);
+      if (!normalised) return state;
+
+      // Reconstruct state from snapshot
+      const newCheckpointMap = {};
+      const snapshotCheckpoints = normalised.checkpoints || [];
+      
+      // Create IDs for all snapshot checkpoints
+      // We need to map indices to IDs
+      const indexToId = snapshotCheckpoints.map((pos, index) => {
+        const id = createId('checkpoint');
+        newCheckpointMap[id] = { id, position: pos, name: `Point ${index + 1}` };
+        return id;
       });
 
-      if (!normalised) {
-        return state;
-      }
+      const newRoutes = normalised.routes.map((r) => {
+        const items = r.indices.map((idx) => indexToId[idx]).filter(Boolean);
+        return {
+          id: createId('route'),
+          name: r.name,
+          color: r.color,
+          isVisible: r.isVisible,
+          items,
+          nextLabelIndex: items.length + 1
+        };
+      });
 
-      const startNode = normalised.start ? { id: 'start', position: normalised.start } : null;
-      const endNode = normalised.end ? { id: 'end', position: normalised.end } : null;
-      const checkpointNodes = normalised.checkpoints.map((position) => ({
-        id: createId('checkpoint'),
-        position
-      }));
-
-      let selectedId = null;
-      if (startNode) {
-        selectedId = 'start';
-      } else if (checkpointNodes.length > 0) {
-        selectedId = checkpointNodes[0].id;
-      } else if (endNode) {
-        selectedId = 'end';
+      // If no routes (shouldn't happen with V3 normalizer), create default
+      if (newRoutes.length === 0) {
+        const routeId = createId('route');
+        newRoutes.push({
+          id: routeId,
+          name: 'Route 1',
+          color: DEFAULT_ROUTE_COLOR,
+          items: indexToId,
+          isVisible: true,
+          nextLabelIndex: indexToId.length + 1
+        });
       }
 
       return {
         ...initialState,
         connectVia: normalised.connectVia,
-        start: startNode,
-        end: endNode,
-        checkpoints: checkpointNodes,
-        selectedId,
+        checkpointMap: newCheckpointMap,
+        routes: newRoutes,
+        activeRouteId: newRoutes[0].id,
+        selectedId: null,
         placementMode: null
       };
     }),
+
   clearAll: () => set(initialState),
+
   swapCheckpoints: (id1, id2) =>
     set((state) => {
-      // Helper to get item and type
-      const getItem = (id) => {
-        if (id === 'start') return { type: 'start', item: state.start };
-        if (id === 'end') return { type: 'end', item: state.end };
-        const idx = state.checkpoints.findIndex((c) => c.id === id);
-        if (idx !== -1) return { type: 'checkpoint', index: idx, item: state.checkpoints[idx] };
-        return null;
+      // Swap in active route
+      const activeRoute = state.routes.find((r) => r.id === state.activeRouteId);
+      if (!activeRoute) return state;
+
+      const idx1 = activeRoute.items.indexOf(id1);
+      const idx2 = activeRoute.items.indexOf(id2);
+
+      if (idx1 === -1 || idx2 === -1) return state;
+
+      const newItems = [...activeRoute.items];
+      newItems[idx1] = id2;
+      newItems[idx2] = id1;
+
+      return {
+        routes: state.routes.map((r) =>
+          r.id === state.activeRouteId ? { ...r, items: newItems } : r
+        )
       };
-
-      const obj1 = getItem(id1);
-      const obj2 = getItem(id2);
-
-      if (!obj1 || !obj2 || !obj1.item || !obj2.item) return state;
-
-      // We only swap positions
-      const pos1 = obj1.item.position;
-      const pos2 = obj2.item.position;
-
-      let newState = { ...state };
-
-      const setPos = (obj, pos) => {
-        if (obj.type === 'start') newState.start = { ...newState.start, position: pos };
-        else if (obj.type === 'end') newState.end = { ...newState.end, position: pos };
-        else {
-          const newCheckpoints = [...(newState.checkpoints || state.checkpoints)];
-          newCheckpoints[obj.index] = { ...newCheckpoints[obj.index], position: pos };
-          newState.checkpoints = newCheckpoints;
-        }
-      };
-
-      setPos(obj1, pos2);
-      setPos(obj2, pos1);
-
-      return newState;
     })
 }));
 
-export const useCheckpoints = () => useCheckpointsStore((state) => state);
+// Selector to maintain backward compatibility where possible
+export const useCheckpoints = () => useCheckpointsStore((state) => {
+  // Ensure we have valid state structure (handle migration/fallback)
+  const routes = Array.isArray(state.routes) ? state.routes : initialState.routes;
+  const checkpointMap = state.checkpointMap || initialState.checkpointMap;
+  const activeRouteId = state.activeRouteId || initialState.activeRouteId;
+
+  const activeRoute = routes.find(r => r.id === activeRouteId) || routes[0];
+  const activeCheckpoints = activeRoute ? activeRoute.items.map(id => checkpointMap[id]).filter(Boolean) : [];
+  
+  return {
+    ...state,
+    routes,
+    checkpointMap,
+    activeRouteId,
+    checkpoints: activeCheckpoints, // Derived property for UI components that expect a list
+    activeRoute
+  };
+});

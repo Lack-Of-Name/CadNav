@@ -13,21 +13,40 @@ import {
 } from '../hooks/useCompass.js';
 
 const MapPage = () => {
-  const { start, end, checkpoints, selectedId, selectCheckpoint, setStart, setEnd, addCheckpoint } = useCheckpoints();
+  const { 
+    checkpoints, 
+    checkpointMap,
+    routes,
+    activeRouteId,
+    selectedId, 
+    selectCheckpoint, 
+    addCheckpoint 
+  } = useCheckpoints();
+
+  const [compassRouteId, setCompassRouteId] = useState(null);
+
+  // Default compass route to active route if not set
+  useEffect(() => {
+    if (!compassRouteId && activeRouteId) {
+      setCompassRouteId(activeRouteId);
+    }
+  }, [activeRouteId, compassRouteId]);
 
   const targetEntries = useMemo(() => {
-    const items = [];
-    if (start) items.push({ id: 'start', label: 'Start', position: start.position });
-    checkpoints.forEach((checkpoint, index) => {
-      items.push({
+    const targetRouteId = compassRouteId || activeRouteId;
+    const route = routes.find(r => r.id === targetRouteId);
+    if (!route) return [];
+
+    return route.items.map((id, index) => {
+      const checkpoint = checkpointMap[id];
+      if (!checkpoint) return null;
+      return {
         id: checkpoint.id,
-        label: `Checkpoint ${index + 1}`,
+        label: checkpoint.name || `Point ${index + 1}`,
         position: checkpoint.position
-      });
-    });
-    if (end) items.push({ id: 'end', label: 'End', position: end.position });
-    return items;
-  }, [start, checkpoints, end]);
+      };
+    }).filter(Boolean);
+  }, [compassRouteId, activeRouteId, routes, checkpointMap]);
 
   const selectedTarget = useMemo(
     () => targetEntries.find((item) => item.id === selectedId) ?? null,
@@ -249,20 +268,14 @@ const MapPage = () => {
 
   const handleDropItem = useCallback(
     (type, latLng) => {
-      if (type === 'start') {
-        setStart(latLng);
-      } else if (type === 'end') {
-        setEnd(latLng);
-      } else if (type === 'checkpoint') {
-        addCheckpoint(latLng);
-      }
+      addCheckpoint(latLng);
     },
-    [setStart, setEnd, addCheckpoint]
+    [addCheckpoint]
   );
 
   useEffect(() => {
     setPreviewLocation(null);
-  }, [start, end, checkpoints]);
+  }, [checkpoints]);
 
   return (
     <div className="relative viewport-safe bg-slate-950 text-slate-100">
@@ -327,6 +340,9 @@ const MapPage = () => {
             onSelectTarget={selectCheckpoint}
             bearingUnit={bearingUnit}
             onToggleBearingUnit={toggleBearingUnit}
+            routes={routes}
+            activeRouteId={compassRouteId}
+            onSelectRoute={setCompassRouteId}
           />
         </div>
       )}
@@ -487,36 +503,22 @@ const MapPage = () => {
       {showPlacingHelp && (
         <div className="fixed inset-0 z-[1500] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
-            <h3 className="mb-2 text-lg font-bold text-slate-100">How to Place Checkpoints</h3>
+            <h3 className="mb-2 text-lg font-bold text-slate-100">How placement works</h3>
             <ul className="mb-6 list-disc space-y-2 pl-5 text-sm text-slate-300">
               <li>
-                <strong>Drag & Drop:</strong> Drag the colored icons from the bottom toolbar onto the map.
-                <ul className="mt-1 list-none space-y-1 pl-2 text-xs text-slate-400">
-                  <li className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-green-500"></span>
-                    <span>Green: Start Point</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-sky-500"></span>
-                    <span>Blue: Checkpoint</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-red-500"></span>
-                    <span>Red: End Point</span>
-                  </li>
-                </ul>
-                <p className="mt-1 text-xs italic text-slate-500">
-                  Note: You can only have one Start and one End point.
-                </p>
+                <strong>Drag & drop:</strong> The single puck in the bottom toolbar matches your active route colour. Drag it onto the map to add a checkpoint to that route at the drop point.
               </li>
               <li>
-                <strong>Grid Placement:</strong> To place by grid reference, first use the <strong>Grid Tools</strong> menu to project a point. A magenta marker will appear. Then, drag a checkpoint onto that marker.
+                <strong>Control the order:</strong> In the Route panel, tap <em>Insert Before</em> or <em>Insert After</em>. The next checkpoint you drop will slot into that position; otherwise it’s appended to the end.
               </li>
               <li>
-                <strong>Move:</strong> Drag any existing marker on the map to move it.
+                <strong>Grid & projections:</strong> Use the Grid Tools to resolve or project a coordinate. Drop the puck onto the magenta preview marker to capture that exact location.
               </li>
               <li>
-                <strong>Exit:</strong> Tap the red X button in the top right to return to the main view.
+                <strong>Edit or move:</strong> Drag any existing checkpoint marker to fine-tune its location, or use the accordion controls to rename, recolour, or delete it.
+              </li>
+              <li>
+                <strong>Exit placement:</strong> Tap the red X button in the top-right corner when you’re done.
               </li>
             </ul>
             <button
