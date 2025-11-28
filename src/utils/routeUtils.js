@@ -161,29 +161,35 @@ export const normaliseRouteShareSnapshot = (snapshot) => {
   };
 };
 
-export const buildRouteShareSnapshot = ({ checkpointMap, routes, connectVia }) => {
-  // Convert map to list
-  const checkpointIds = Object.keys(checkpointMap);
-  const checkpoints = checkpointIds.map(id => checkpointMap[id].position);
-  
-  // Map internal IDs to indices
-  const idToIndex = {};
-  checkpointIds.forEach((id, index) => {
-    idToIndex[id] = index;
+export const buildRouteShareSnapshot = ({ checkpointMap, routes, connectVia, includeNames = false }) => {
+  // Collect all checkpoint IDs used in the provided routes
+  const usedCheckpointIds = new Set();
+  routes.forEach((route) => {
+    if (Array.isArray(route.items)) {
+      route.items.forEach((id) => usedCheckpointIds.add(id));
+    }
   });
 
-  const snapshotRoutes = routes.map(route => ({
-    name: route.name,
+  const checkpoints = [];
+  const idToIndex = {};
+  
+  // Create a list of only the used checkpoints and map their IDs to new indices
+  Array.from(usedCheckpointIds).forEach((id) => {
+    const checkpoint = checkpointMap[id];
+    if (checkpoint && checkpoint.position) {
+      idToIndex[id] = checkpoints.length;
+      checkpoints.push(checkpoint.position);
+    }
+  });
+
+  const snapshotRoutes = routes.map((route) => ({
+    name: includeNames ? route.name : '',
     color: route.color,
     isVisible: route.isVisible,
-    indices: route.items.map(id => idToIndex[id]).filter(idx => idx !== undefined)
+    indices: (route.items || [])
+      .map((id) => idToIndex[id])
+      .filter((idx) => typeof idx === 'number')
   }));
-
-  // Filter out unused checkpoints? 
-  // For now, let's keep it simple. If we wanted to optimize, we'd only include used ones.
-  // But the user might have placed points they haven't routed yet? 
-  // Actually, "orphaned" points are probably not worth saving in a share unless we want to preserve them.
-  // Let's just save everything in the map.
 
   return {
     version: ROUTE_SHARE_VERSION,
@@ -339,8 +345,12 @@ const decodeBinaryRouteShare = (code) => {
       } else {
         const nameLen = view.getUint8(offset); offset += 1;
         const nameBytes = new Uint8Array(bytes.buffer, bytes.byteOffset + offset, nameLen);
-        const name = textDecoder.decode(nameBytes);
+        let name = textDecoder.decode(nameBytes);
         offset += nameLen;
+
+        if (!name) {
+          name = `Route ${i + 1}`;
+        }
 
         const itemCount = view.getUint16(offset, false); offset += 2;
         const indices = [];
@@ -364,20 +374,148 @@ const decodeBinaryRouteShare = (code) => {
   }
 };
 
+const encodeTextRouteShare = (normalised) => {
+  // Text Encoding: (Name)geohash_geohash (Name)geohash_geohash
+  // Routes separated by space, checkpoints by underscore
+  // Uses sequential prefix compression: omits shared prefix with previous hash
+  const checkpoints = normalised.checkpoints;
+  const routes = normalised.routes;
+  let previousHash = '';
+
+  return routes
+    .map((route) => {
+      const suffixes = route.indices
+        .map((idx) => {
+          const pos = checkpoints[idx];
+          if (!pos) return null;
+          const currentHash = encodeLocationCode(pos, 9);
+          
+          let commonPrefixLength = 0;
+          if (previousHash) {
+            const maxLen = Math.min(previousHash.length, currentHash.length);
+            while (commonPrefixLength < maxLen && previousHash[commonPrefixLength] === currentHash[commonPrefixLength]) {
+              commonPrefixLength += 1;
+            }
+          }
+          
+          const suffix = currentHash.slice(commonPrefixLength);
+          previousHash = currentHash;
+          return suffix;
+        })
+        .filter((val) => val !== null);
+
+      if (suffixes.length === 0) return null;
+
+      const hashString = suffixes.join('_');
+
+      if (route.name) {
+        // URL encode to handle spaces and special characters safely within the text format
+        const encodedName = encodeURIComponent(route.name);
+        return `(${encodedName})${hashString}`;
+      }
+      return hashString;
+    })
+    .filter((str) => str && str.length > 0)
+    .join(' ');
+};
+
+const decodeTextRouteShare = (code) => {
+  // Try to parse as text format
+  // Must contain only alphanumeric chars, underscores, spaces, brackets, and URL-safe chars
+  // Relaxed regex to allow for encoded names
+  if (!/^[a-z0-9_ \(\)\%\-\.\~\!\*\'\(\)]+$/i.test(code)) return null;
+
+  const routeStrings = code.split(/\s+/).filter(Boolean);
+  if (routeStrings.length === 0) return null;
+
+  const checkpoints = [];
+  const routes = [];
+  let previousHash = '';
+
+  routeStrings.forEach((routeStr, routeIndex) => {
+    let name = `Route ${routeIndex + 1}`;
+    let hashData = routeStr;
+
+    // Check for name prefix (Name)
+    const nameMatch = routeStr.match(/^\((.*?)\)(.*)/);
+    if (nameMatch) {
+      try {
+        name = decodeURIComponent(nameMatch[1]);
+        hashData = nameMatch[2];
+      } catch (e) {
+        // Fallback if decode fails
+        name = nameMatch[1];
+      }
+    }
+
+    // Handle empty hashData (single point identical to previous)
+    // If hashData is empty string, split gives [''].
+    const hashStrings = hashData.length === 0 ? [''] : hashData.split('_');
+    const indices = [];
+
+    hashStrings.forEach((hash) => {
+      let fullHash = hash;
+      const len = hash.length;
+      const prefixLen = 9 - len;
+
+      if (prefixLen > 0 && previousHash.length >= prefixLen) {
+        fullHash = previousHash.slice(0, prefixLen) + hash;
+      }
+
+      const pos = decodeLocationCode(fullHash);
+      if (pos) {
+        previousHash = fullHash;
+        indices.push(checkpoints.length);
+        checkpoints.push(pos);
+      }
+    });
+
+    if (indices.length > 0) {
+      routes.push({
+        name,
+        color: FALLBACK_ROUTE_COLOR,
+        isVisible: true,
+        indices
+      });
+    }
+  });
+
+  if (routes.length === 0) return null;
+
+  return {
+    version: ROUTE_SHARE_VERSION,
+    connectVia: 'direct', // Default for text format
+    checkpoints,
+    routes
+  };
+};
+
 export const encodeRouteShare = (snapshot) => {
   const normalised = normaliseRouteShareSnapshot(snapshot);
   if (!normalised) return '';
-  return encodeBinaryRouteShare(normalised);
+  
+  // Always use the text format (now supports names)
+  return encodeTextRouteShare(normalised);
 };
 
 export const decodeRouteShare = (code) => {
   if (typeof code !== 'string') return null;
   const trimmed = code.trim();
   if (!trimmed) return null;
+
+  // Try binary first (V4)
   const binaryResult = decodeBinaryRouteShare(trimmed);
   if (binaryResult) {
     return normaliseRouteShareSnapshot(binaryResult);
   }
+
+  // Try text format (Geohash)
+  const textResult = decodeTextRouteShare(trimmed);
+  if (textResult) {
+    return normaliseRouteShareSnapshot(textResult);
+  }
+
+  // Try legacy JSON
   try {
     const parsed = JSON.parse(base64Decode(trimmed));
     return normaliseRouteShareSnapshot(parsed);

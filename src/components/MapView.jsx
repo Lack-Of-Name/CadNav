@@ -415,6 +415,7 @@ const MapView = ({
   const [shareCopyState, setShareCopyState] = useState(null);
   const [shareImportValue, setShareImportValue] = useState('');
   const [shareImportStatus, setShareImportStatus] = useState(null);
+  const [shareIncludeNames, setShareIncludeNames] = useState(false);
   const [shareCalloutValue, setShareCalloutValue] = useState('');
   const [shareCalloutTarget, setShareCalloutTarget] = useState('checkpoint');
   const [shareCalloutStatus, setShareCalloutStatus] = useState(null);
@@ -457,8 +458,13 @@ const MapView = ({
   );
 
   const shareSnapshot = useMemo(
-    () => buildRouteShareSnapshot({ checkpointMap, routes: shareTargetRoutes, connectVia }),
-    [checkpointMap, shareTargetRoutes, connectVia]
+    () => buildRouteShareSnapshot({
+      checkpointMap,
+      routes: shareTargetRoutes,
+      connectVia,
+      includeNames: shareIncludeNames
+    }),
+    [checkpointMap, shareTargetRoutes, connectVia, shareIncludeNames]
   );
 
   const shareCode = useMemo(
@@ -484,12 +490,14 @@ const MapView = ({
       );
     }
     const includes = segments.length ? `Includes ${segments.join(', ')}. ` : '';
-    const connectionText =
-      shareSnapshot.connectVia === 'route'
-        ? 'Route mode connections maintained.'
-        : 'Direct line connections maintained.';
-    return `${includes}${connectionText}`;
-  }, [shareSnapshot]);
+    
+    // Text format is now always used
+    if (shareIncludeNames) {
+       return `${includes}Compact text format (connection mode & colors excluded).`;
+    }
+
+    return `${includes}Compact text format (names, connection mode & colors excluded).`;
+  }, [shareSnapshot, shareIncludeNames]);
 
   const hasShareCode = Boolean(shareCode);
 
@@ -1517,6 +1525,19 @@ const MapView = ({
                         </select>
                       </div>
                     )}
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="share-include-names"
+                        checked={shareIncludeNames}
+                        onChange={(e) => setShareIncludeNames(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-sky-500 focus:ring-sky-500"
+                      />
+                      <label htmlFor="share-include-names" className="text-[11px] font-medium opacity-80">
+                        Include route names
+                      </label>
+                    </div>
 
                     <p className={themeStyles.layerOptionDescription}>
                       {shareSummaryText ?? 'Add at least one waypoint to generate a share code.'}
