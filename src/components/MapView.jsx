@@ -416,6 +416,7 @@ const MapView = ({
   const [shareImportValue, setShareImportValue] = useState('');
   const [shareImportStatus, setShareImportStatus] = useState(null);
   const [shareIncludeNames, setShareIncludeNames] = useState(false);
+  const [shareIncludeColors, setShareIncludeColors] = useState(false);
   const [shareCalloutValue, setShareCalloutValue] = useState('');
   const [shareCalloutTarget, setShareCalloutTarget] = useState('checkpoint');
   const [shareCalloutStatus, setShareCalloutStatus] = useState(null);
@@ -462,9 +463,10 @@ const MapView = ({
       checkpointMap,
       routes: shareTargetRoutes,
       connectVia,
-      includeNames: shareIncludeNames
+      includeNames: shareIncludeNames,
+      includeColors: shareIncludeColors
     }),
-    [checkpointMap, shareTargetRoutes, connectVia, shareIncludeNames]
+    [checkpointMap, shareTargetRoutes, connectVia, shareIncludeNames, shareIncludeColors]
   );
 
   const shareCode = useMemo(
@@ -492,12 +494,18 @@ const MapView = ({
     const includes = segments.length ? `Includes ${segments.join(', ')}. ` : '';
     
     // Text format is now always used
+    if (shareIncludeNames && shareIncludeColors) {
+       return `${includes}Compact text format (connection mode excluded).`;
+    }
     if (shareIncludeNames) {
        return `${includes}Compact text format (connection mode & colors excluded).`;
     }
+    if (shareIncludeColors) {
+       return `${includes}Compact text format (names & connection mode excluded).`;
+    }
 
     return `${includes}Compact text format (names, connection mode & colors excluded).`;
-  }, [shareSnapshot, shareIncludeNames]);
+  }, [shareSnapshot, shareIncludeNames, shareIncludeColors]);
 
   const hasShareCode = Boolean(shareCode);
 
@@ -1526,17 +1534,31 @@ const MapView = ({
                       </div>
                     )}
 
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="share-include-names"
-                        checked={shareIncludeNames}
-                        onChange={(e) => setShareIncludeNames(e.target.checked)}
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-sky-500 focus:ring-sky-500"
-                      />
-                      <label htmlFor="share-include-names" className="text-[11px] font-medium opacity-80">
-                        Include route names
-                      </label>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="share-include-names"
+                          checked={shareIncludeNames}
+                          onChange={(e) => setShareIncludeNames(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-sky-500 focus:ring-sky-500"
+                        />
+                        <label htmlFor="share-include-names" className="text-[11px] font-medium opacity-80">
+                          Include names
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="share-include-colors"
+                          checked={shareIncludeColors}
+                          onChange={(e) => setShareIncludeColors(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-sky-500 focus:ring-sky-500"
+                        />
+                        <label htmlFor="share-include-colors" className="text-[11px] font-medium opacity-80">
+                          Include colors
+                        </label>
+                      </div>
                     </div>
 
                     <p className={themeStyles.layerOptionDescription}>

@@ -87,6 +87,19 @@ export const ROUTE_SHARE_VERSION = 4;
 const ROUTE_SHARE_SCALE = 1e5;
 const FALLBACK_ROUTE_COLOR = '#38bdf8';
 
+const COLOR_PALETTE = {
+  r: '#ef4444', o: '#f97316', a: '#f59e0b', y: '#eab308', l: '#84cc16',
+  g: '#22c55e', e: '#10b981', t: '#14b8a6', c: '#06b6d4', s: '#0ea5e9',
+  b: '#3b82f6', i: '#6366f1', v: '#8b5cf6', p: '#a855f7', f: '#d946ef',
+  k: '#ec4899', z: '#f43f5e', x: '#64748b', d: '#6b7280', m: '#71717a',
+  n: '#737373', w: '#78716c', 0: '#000000', 1: '#ffffff'
+};
+
+const PALETTE_TO_CODE = Object.entries(COLOR_PALETTE).reduce((acc, [key, value]) => {
+  acc[value] = key;
+  return acc;
+}, {});
+
 export const normaliseRouteShareSnapshot = (snapshot) => {
   if (!snapshot || typeof snapshot !== 'object') return null;
   const version = typeof snapshot.version === 'number' ? snapshot.version : ROUTE_SHARE_VERSION;
@@ -145,7 +158,7 @@ export const normaliseRouteShareSnapshot = (snapshot) => {
   const routes = Array.isArray(snapshot.routes)
     ? snapshot.routes.map(r => ({
         name: typeof r.name === 'string' ? r.name.slice(0, 20) : 'Route',
-        color: typeof r.color === 'string' ? r.color : FALLBACK_ROUTE_COLOR,
+        color: r.color === null ? null : (typeof r.color === 'string' ? r.color : FALLBACK_ROUTE_COLOR),
         indices: Array.isArray(r.indices)
           ? r.indices.filter((i) => typeof i === 'number' && i >= 0 && i < checkpoints.length)
           : [],
@@ -161,7 +174,7 @@ export const normaliseRouteShareSnapshot = (snapshot) => {
   };
 };
 
-export const buildRouteShareSnapshot = ({ checkpointMap, routes, connectVia, includeNames = false }) => {
+export const buildRouteShareSnapshot = ({ checkpointMap, routes, connectVia, includeNames = false, includeColors = false }) => {
   // Collect all checkpoint IDs used in the provided routes
   const usedCheckpointIds = new Set();
   routes.forEach((route) => {
@@ -184,7 +197,7 @@ export const buildRouteShareSnapshot = ({ checkpointMap, routes, connectVia, inc
 
   const snapshotRoutes = routes.map((route) => ({
     name: includeNames ? route.name : '',
-    color: route.color,
+    color: includeColors ? route.color : null,
     isVisible: route.isVisible,
     indices: (route.items || [])
       .map((id) => idToIndex[id])
@@ -375,7 +388,7 @@ const decodeBinaryRouteShare = (code) => {
 };
 
 const encodeTextRouteShare = (normalised) => {
-  // Text Encoding: (Name)geohash_geohash (Name)geohash_geohash
+  // Text Encoding: (Name,Color)geohash_geohash (Name)geohash_geohash
   // Routes separated by space, checkpoints by underscore
   // Uses sequential prefix compression: omits shared prefix with previous hash
   const checkpoints = normalised.checkpoints;
@@ -407,10 +420,36 @@ const encodeTextRouteShare = (normalised) => {
       if (suffixes.length === 0) return null;
 
       const hashString = suffixes.join('_');
+      const hasName = route.name && route.name.trim().length > 0;
+      const hasColor = route.color && route.color.trim().length > 0;
 
-      if (route.name) {
+      if (hasName || hasColor) {
         // URL encode to handle spaces and special characters safely within the text format
-        const encodedName = encodeURIComponent(route.name);
+        // Replace %20 with + to save space
+        const encodedName = hasName ? encodeURIComponent(route.name).replace(/%20/g, '+') : '';
+        
+        let encodedColor = '';
+        if (hasColor) {
+          const lowerColor = route.color.toLowerCase();
+          if (PALETTE_TO_CODE[lowerColor]) {
+            encodedColor = PALETTE_TO_CODE[lowerColor];
+          } else if (lowerColor.startsWith('#')) {
+            encodedColor = lowerColor.slice(1);
+            // Compress #aabbcc to abc if possible
+            if (encodedColor.length === 6 && 
+                encodedColor[0] === encodedColor[1] && 
+                encodedColor[2] === encodedColor[3] && 
+                encodedColor[4] === encodedColor[5]) {
+              encodedColor = encodedColor[0] + encodedColor[2] + encodedColor[4];
+            }
+          } else {
+            encodedColor = encodeURIComponent(route.color);
+          }
+        }
+        
+        if (hasColor) {
+          return `(${encodedName},${encodedColor})${hashString}`;
+        }
         return `(${encodedName})${hashString}`;
       }
       return hashString;
@@ -421,9 +460,9 @@ const encodeTextRouteShare = (normalised) => {
 
 const decodeTextRouteShare = (code) => {
   // Try to parse as text format
-  // Must contain only alphanumeric chars, underscores, spaces, brackets, and URL-safe chars
-  // Relaxed regex to allow for encoded names
-  if (!/^[a-z0-9_ \(\)\%\-\.\~\!\*\'\(\)]+$/i.test(code)) return null;
+  // Must contain only alphanumeric chars, underscores, spaces, brackets, commas, plus signs, and URL-safe chars
+  // Relaxed regex to allow for encoded names and colors
+  if (!/^[a-z0-9_ \(\)\%\-\.\~\!\*\'\(\)\,\+]+$/i.test(code)) return null;
 
   const routeStrings = code.split(/\s+/).filter(Boolean);
   if (routeStrings.length === 0) return null;
@@ -434,17 +473,41 @@ const decodeTextRouteShare = (code) => {
 
   routeStrings.forEach((routeStr, routeIndex) => {
     let name = `Route ${routeIndex + 1}`;
+    let color = FALLBACK_ROUTE_COLOR;
     let hashData = routeStr;
 
-    // Check for name prefix (Name)
-    const nameMatch = routeStr.match(/^\((.*?)\)(.*)/);
-    if (nameMatch) {
-      try {
-        name = decodeURIComponent(nameMatch[1]);
-        hashData = nameMatch[2];
-      } catch (e) {
-        // Fallback if decode fails
-        name = nameMatch[1];
+    // Check for prefix (Name,Color) or (Name)
+    const prefixMatch = routeStr.match(/^\((.*?)\)(.*)/);
+    if (prefixMatch) {
+      const content = prefixMatch[1];
+      hashData = prefixMatch[2];
+      
+      // Split by comma, but be careful if comma is part of name (though name is encoded)
+      // Since we encode commas in name (encodeURIComponent does that), splitting by comma is safe for separation
+      const parts = content.split(',');
+      
+      if (parts.length > 0 && parts[0]) {
+        try {
+          // Restore spaces from + before decoding
+          name = decodeURIComponent(parts[0].replace(/\+/g, '%20'));
+        } catch (e) {
+          name = parts[0];
+        }
+      }
+      
+      if (parts.length > 1 && parts[1]) {
+        const colorCode = parts[1];
+        if (COLOR_PALETTE[colorCode]) {
+          color = COLOR_PALETTE[colorCode];
+        } else if (/^[0-9a-f]{3,6}$/i.test(colorCode)) {
+          color = `#${colorCode}`;
+        } else {
+          try {
+            color = decodeURIComponent(colorCode);
+          } catch (e) {
+            color = colorCode;
+          }
+        }
       }
     }
 
@@ -473,7 +536,7 @@ const decodeTextRouteShare = (code) => {
     if (indices.length > 0) {
       routes.push({
         name,
-        color: FALLBACK_ROUTE_COLOR,
+        color,
         isVisible: true,
         indices
       });
