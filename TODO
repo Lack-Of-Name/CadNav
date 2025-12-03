@@ -1,0 +1,39 @@
+## Core Peer-to-Peer Architecture (Serverless)
+- [ ] Implement WebRTC P2P connections using Google STUN: `stun:stun.l.google.com:19302`
+- [ ] Create “Start Session” button → generates WebRTC offer (SDP)
+- [ ] Base64-encode offer → present as text + QR code
+- [ ] Create “Join Session” UI → paste or scan offer code
+- [ ] Generate WebRTC answer → Base64-encode → return to initiator
+- [ ] Establish encrypted P2P DataChannel
+- [ ] Auto-close connection when both peers close tab
+
+## Location & Route sharing VIA WebRTC
+- [ ] Ability to recieve location and route from others live
+- [ ] Ability to disconnect
+- [ ] Ability to throttle update rate within range (1-60 seconds)
+
+## Location Sharing (P2P)
+- [ ] Use `navigator.geolocation.watchPosition` for real-time location
+- [ ] Send `{lat, lng, accuracy, timestamp}` packets over DataChannel
+- [ ] Throttle updates to ~1 per x seconds (1 per 10 seconds)
+- [ ] Display connected peers and their routes on map in real time
+
+## Offline Maps (Web App Compatible)
+- [ ] Use MapLibre GL JS with vector tiles
+- [ ] Implement offline tile caching via Service Worker + Cache API
+- [ ] Allow selecting a region → pre-fetch `/z/x/y.pbf` tiles
+- [ ] Store cached tiles in `IndexedDB` or Cache API
+- [ ] Detect offline state → switch to cached map tiles
+- [ ] Implement fallback if tile cache missing
+
+## Upgraded Share System
+- [ ] Add QR-based sharing for anything cross-device
+
+## Secure Invite / Accept System (No Server)
+- [ ] Use out-of-band sharing
+- [ ] Require user-entered shared passphrase
+
+## Testing Checklist
+- [ ] Ensure WebRTC connection works over LTE/WiFi
+- [ ] Test offline map loading with airplane mode
+- [ ] Test reconnect behavior when connection drops

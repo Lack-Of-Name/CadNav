@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { AttributionControl, MapContainer, Marker, Polyline, TileLayer, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -366,6 +366,38 @@ const PlacementHandler = () => {
   return null;
 };
 
+const DraggableMarker = memo(({ id, position, icon, onSelect, onUpdate }) => {
+  const markerRef = useRef(null);
+  
+  const eventHandlers = useMemo(
+    () => ({
+      click: () => onSelect(id),
+      dragend: () => {
+        const marker = markerRef.current;
+        if (marker) {
+          const { lat, lng } = marker.getLatLng();
+          onUpdate(id, { lat, lng });
+        }
+      },
+    }),
+    [id, onSelect, onUpdate]
+  );
+
+  const positionArray = useMemo(() => [position.lat, position.lng], [position]);
+
+  return (
+    <Marker
+      draggable={true}
+      eventHandlers={eventHandlers}
+      position={positionArray}
+      icon={icon}
+      ref={markerRef}
+    />
+  );
+});
+
+DraggableMarker.displayName = 'DraggableMarker';
+
 const MapView = ({
   userLocation,
   userHeading,
@@ -410,6 +442,8 @@ const MapView = ({
   const [cacheStatus, setCacheStatus] = useState(null);
   const [isCaching, setIsCaching] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [lowDataMode, setLowDataMode] = useState(false);
+  const [mapError, setMapError] = useState(null);
   const [settingsView, setSettingsView] = useState('settings');
   const [tileLayerReloadKey, setTileLayerReloadKey] = useState(0);
   const [shareCopyState, setShareCopyState] = useState(null);
@@ -740,6 +774,7 @@ const MapView = ({
   }, []);
 
   useEffect(() => {
+    setMapError(null);
     showCacheStatus(null);
     setIsCaching(false);
     tileFailureRef.current = 0;
@@ -1097,7 +1132,9 @@ const MapView = ({
         tileFailureRef.current += 1;
         if (tileFailureRef.current >= 3) {
           tileFailureRef.current = 0;
-          showCacheStatus('Tile issues detected. Reverting to standard map.', 'warning', 3000);
+          const message = 'Selected map unavailable';
+          showCacheStatus(message, 'warning', 6000);
+          setMapError(message);
           if (baseLayer !== 'street' && typeof onBaseLayerChange === 'function') {
             onBaseLayerChange('street');
           } else {
@@ -1233,12 +1270,13 @@ const MapView = ({
         <MapDropHandler onDropItem={onDropItem} />
         <AttributionControl position="bottomleft" prefix={false} />
         <TileLayer
-          key={`${tileProvider.id}-${tileLayerReloadKey}`}
+          key={`${tileProvider.id}-${tileLayerReloadKey}-${lowDataMode}`}
           url={tileProvider.url}
           attribution={tileProvider.attribution}
           subdomains={tileProvider.subdomains}
           minZoom={tileProvider.minZoom}
           maxZoom={tileProvider.maxZoom}
+          maxNativeZoom={lowDataMode ? 16 : undefined}
           eventHandlers={tileEventHandlers}
         />
         <PlacementHandler />
@@ -1256,18 +1294,13 @@ const MapView = ({
 
 
         {visibleCheckpoints.map(({ checkpoint, color }) => (
-          <Marker
+          <DraggableMarker
             key={checkpoint.id}
-            position={[checkpoint.position.lat, checkpoint.position.lng]}
+            id={checkpoint.id}
+            position={checkpoint.position}
             icon={getMarkerIcon(color)}
-            draggable
-            eventHandlers={{
-              click: () => selectCheckpoint(checkpoint.id),
-              dragend: (event) => {
-                const { lat, lng } = event.target.getLatLng();
-                updateCheckpoint(checkpoint.id, { lat, lng });
-              }
-            }}
+            onSelect={selectCheckpoint}
+            onUpdate={updateCheckpoint}
           />
         ))}
 
@@ -1711,6 +1744,33 @@ const MapView = ({
                       onClick={handleToolbarThemeChange}
                     >
                       {toolbarTheme === 'light' ? 'Light' : 'Night'}
+                    </button>
+                  </div>
+                  {mapError && (
+                    <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-[11px] text-amber-500">
+                      <p className="font-semibold">Map Error</p>
+                      <p>{mapError}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="font-medium">Low data mode</span>
+                      <p className="text-[11px] opacity-70">Reduce map detail to save data.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={lowDataMode}
+                      onClick={() => setLowDataMode(!lowDataMode)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 ${
+                        lowDataMode ? 'bg-orange-500' : 'bg-slate-600'
+                      }`}
+                    >
+                      <span
+                        className={`${
+                          lowDataMode ? 'translate-x-6' : 'translate-x-1'
+                        } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                      />
                     </button>
                   </div>
                   <div>
