@@ -338,6 +338,19 @@ const createUserIcon = (heading) =>
     iconAnchor: [22, 22]
   });
 
+const createPeerIcon = (color = '#22c55e') =>
+  L.divIcon({
+    className: 'peer-icon',
+    html: `
+      <div style="position:relative;width:32px;height:32px;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:${color}33;border:2px solid ${color}E6;box-shadow:0 0 8px ${color}66;"></div>
+        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:10px;height:10px;background:${color};border-radius:50%;"></div>
+      </div>
+    `,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16]
+  });
+
 const PlacementHandler = () => {
   const {
     placementMode,
@@ -400,6 +413,7 @@ DraggableMarker.displayName = 'DraggableMarker';
 
 const MapView = ({
   userLocation,
+  peers = {},
   userHeading,
   targets = [],
   onEnableLocation,
@@ -869,6 +883,7 @@ const MapView = ({
 
   const userIcon = useMemo(() => createUserIcon(userHeading ?? 0), [userHeading]);
 
+
   const recenterMap = useCallback(() => {
     if (!mapRef.current) return;
     const latestLocation = latestUserLocationRef.current ?? userLocation;
@@ -1289,6 +1304,15 @@ const MapView = ({
           />
         )}
 
+        {Object.values(peers).map(peer => peer.location && (
+          <Marker
+            key={`peer-loc-${peer.id}`}
+            position={[peer.location.lat, peer.location.lng]}
+            icon={createPeerIcon(peer.color)}
+            interactive={false}
+          />
+        ))}
+
 
 
 
@@ -1342,6 +1366,18 @@ const MapView = ({
             />
           )
         ))}
+
+        {Object.values(peers).map(peer => 
+          peer.routes && peer.routes.map(route => (
+            route.items && route.items.length >= 2 && (
+                <Polyline
+                  key={`peer-route-${peer.id}-${route.id}`}
+                  positions={route.items.map(cp => [cp.position.lat, cp.position.lng])}
+                  pathOptions={{ color: peer.color || '#22c55e', weight: 4, dashArray: '10 6', opacity: 0.6 }}
+                />
+            )
+          ))
+        )}
 
         {userLocation &&
           targets

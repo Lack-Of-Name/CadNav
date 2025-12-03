@@ -4,6 +4,8 @@ import Compass from '../components/Compass.jsx';
 import CheckpointList from '../components/CheckpointList.jsx';
 import GridTools from '../components/GridTools.jsx';
 import PlacementToolbar from '../components/PlacementToolbar.jsx';
+import { ConnectionManager } from '../components/ConnectionManager.jsx';
+import { useP2PStore } from '../hooks/useP2PStore';
 import { useCheckpoints } from '../hooks/useCheckpoints.js';
 import {
   useCompass,
@@ -69,6 +71,29 @@ const MapPage = () => {
     requestPermission,
     startGeolocation
   } = useCompass(selectedPosition);
+
+  const { sendLocation, sendRoutes, connectionStatus, peers } = useP2PStore();
+  const lastSentRef = useRef(0);
+
+  useEffect(() => {
+    if (connectionStatus === 'connected' && geolocation) {
+      const now = Date.now();
+      if (now - lastSentRef.current > 10000) { // 10 seconds throttle
+        sendLocation(geolocation);
+        lastSentRef.current = now;
+      }
+    }
+  }, [geolocation, connectionStatus, sendLocation]);
+
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      const resolvedRoutes = routes.map(route => ({
+          ...route,
+          items: route.items.map(id => checkpointMap[id]).filter(Boolean)
+      }));
+      sendRoutes(resolvedRoutes);
+    }
+  }, [connectionStatus, routes, checkpointMap, sendRoutes]);
 
   const supplementaryTargets = useMemo(
     () =>
@@ -281,6 +306,7 @@ const MapPage = () => {
     <div className="relative viewport-safe bg-slate-950 text-slate-100">
       <MapView
         userLocation={geolocation}
+        peers={peers}
         userHeading={heading}
         targets={supplementaryTargets}
         onEnableLocation={handleEnableLocation}
@@ -399,6 +425,30 @@ const MapPage = () => {
         </div>
       )}
 
+      {!isPlacingMode && activeOverlay === 'p2p' && (
+        <div
+          className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950/80 md:left-auto md:right-6 md:top-6 md:max-w-md md:rounded-2xl"
+          style={overlaySheetStyle}
+        >
+          <div className="mb-3 flex justify-center">
+            <button
+              type="button"
+              data-overlay-id="p2p"
+              className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800 touch-none"
+              aria-label="Drag to resize or tap to close panel"
+              onPointerDown={handleOverlayResizeStart}
+            >
+              <span className="block h-2 w-16 rounded-full bg-slate-500 transition group-active:bg-slate-300" />
+            </button>
+          </div>
+          <div className="mb-2 text-left text-[11px]">
+            <p className="font-semibold uppercase tracking-wide text-slate-500">P2P Connection</p>
+            <p className="text-xs text-slate-400">Share location & routes</p>
+          </div>
+          <ConnectionManager />
+        </div>
+      )}
+
       {!isPlacingMode && isMenuOpen && (
         <div className="pointer-events-auto absolute inset-x-0 bottom-28 z-[1300] flex justify-center px-4 md:bottom-32">
           <div className="w-full max-w-xs rounded-2xl border border-slate-800 bg-slate-950 p-3 text-[12px] text-slate-100 shadow-xl shadow-slate-950/80">
@@ -456,6 +506,24 @@ const MapPage = () => {
                   }`}
                 >
                   Conversions
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`flex items-center justify-between rounded-lg border px-3 py-2 font-semibold transition ${
+                  activeOverlay === 'p2p'
+                    ? 'border-sky-500 bg-sky-500 text-slate-950'
+                    : 'border-slate-700 bg-slate-900 hover:border-sky-500 hover:text-sky-100'
+                }`}
+                onClick={() => openOverlay('p2p')}
+              >
+                P2P Share
+                <span
+                  className={`text-[10px] ${
+                    activeOverlay === 'p2p' ? 'text-slate-800' : 'text-slate-400'
+                  }`}
+                >
+                  Connect
                 </span>
               </button>
             </div>
