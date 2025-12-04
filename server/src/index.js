@@ -14,7 +14,6 @@ const DEFAULT_UPDATE_INTERVAL_MS = Math.min(
   Math.max(Number(process.env.LOCATION_INTERVAL_MS ?? 10000), MIN_UPDATE_INTERVAL_MS),
   MAX_UPDATE_INTERVAL_MS
 );
-const ROUTE_UPDATE_INTERVAL_MS = Number(process.env.ROUTE_UPDATE_INTERVAL_MS ?? 8000);
 const MAX_ROUTES_PER_CLIENT = Number(process.env.MAX_CLIENT_ROUTES ?? 8);
 const MAX_ROUTE_POINTS = Number(process.env.MAX_ROUTE_POINTS ?? 80);
 const MAX_TRAFFIC_WINDOW_SECONDS = Math.max(60, Number(process.env.TRAFFIC_WINDOW_S ?? 900));
@@ -496,10 +495,6 @@ const handleClientRoutes = (socket, payload) => {
 
   const now = Date.now();
   if (hash && peer.routesHash === hash) {
-    return;
-  }
-
-  if (now - (peer.lastRoutesAt ?? 0) < ROUTE_UPDATE_INTERVAL_MS && hash !== null) {
     return;
   }
 

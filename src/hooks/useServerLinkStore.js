@@ -10,7 +10,6 @@ const SERVER_URL =
   'ws://localhost:4000';
 const RECONNECT_DELAY_MS = 3500;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const CLIENT_ROUTE_PUSH_INTERVAL_MS = 9000;
 const MIN_INTERVAL_SECONDS = 5;
 const MAX_INTERVAL_SECONDS = 120;
 const DEFAULT_INTERVAL_MS = 10000;
@@ -41,9 +40,7 @@ const initialState = {
   reconnectAttempts: 0,
   pendingCode: '',
   lastStateVersion: 0,
-  locationIntervalMs: DEFAULT_INTERVAL_MS,
-  lastClientRouteHash: '',
-  lastClientRoutePushAt: 0
+  locationIntervalMs: DEFAULT_INTERVAL_MS
 };
 
 const makePeerMap = (list = []) => {
@@ -442,18 +439,8 @@ export const useServerLinkStore = create((set, get) => {
     },
     sendClientRoutes: (routes) => {
       if (get().role !== 'client' || !routes) return;
-      const serialised = JSON.stringify(routes);
-      const now = Date.now();
-      const { lastClientRouteHash, lastClientRoutePushAt } = get();
-      if (serialised === lastClientRouteHash) {
-        return;
-      }
-      if (now - lastClientRoutePushAt < CLIENT_ROUTE_PUSH_INTERVAL_MS) {
-        return;
-      }
       const sent = sendPacket({ type: 'client:routes', payload: { routes } });
       if (sent) {
-        set({ lastClientRouteHash: serialised, lastClientRoutePushAt: now });
         addLog('Shared route snapshot with HQ', 'info');
       }
     },
