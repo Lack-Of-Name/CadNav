@@ -13,6 +13,8 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const MIN_INTERVAL_SECONDS = 5;
 const MAX_INTERVAL_SECONDS = 120;
 const DEFAULT_INTERVAL_MS = 10000;
+const HOST_DEFAULT_LABEL = 'HQ';
+const HOST_DEFAULT_COLOR = '#38bdf8';
 
 const colorPalette = [
   '#ef4444',
@@ -40,7 +42,8 @@ const initialState = {
   reconnectAttempts: 0,
   pendingCode: '',
   lastStateVersion: 0,
-  locationIntervalMs: DEFAULT_INTERVAL_MS
+  locationIntervalMs: DEFAULT_INTERVAL_MS,
+  selfLabel: ''
 };
 
 const makePeerMap = (list = []) => {
@@ -135,10 +138,36 @@ export const useServerLinkStore = create((set, get) => {
     set({ ...initialState });
   };
 
+  const formatParticipantName = (participantId, fallbackLabel) => {
+    const state = get();
+    const normalizedId =
+      typeof participantId === 'string' && participantId.trim().length > 0
+        ? participantId.trim()
+        : null;
+    const peerEntry = normalizedId ? state.peers[normalizedId] : null;
+    const normalizedLabel =
+      peerEntry?.label ??
+      (typeof fallbackLabel === 'string' && fallbackLabel.trim().length > 0
+        ? fallbackLabel.trim()
+        : null);
+    const primary = normalizedId ?? normalizedLabel ?? 'peer';
+    const decorated =
+      normalizedLabel && normalizedLabel !== primary ? `${primary} (${normalizedLabel})` : primary;
+    if (normalizedId && normalizedId === state.participantId) {
+      return `${decorated} (me)`;
+    }
+    return decorated;
+  };
+
   const updatePeers = (peers = []) => {
     const existing = get().peers;
     const incoming = makePeerMap(peers);
-    set({ peers: { ...existing, ...incoming } });
+    const updates = { peers: { ...existing, ...incoming } };
+    const selfId = get().participantId;
+    if (selfId && incoming[selfId]?.label) {
+      updates.selfLabel = incoming[selfId].label;
+    }
+    set(updates);
   };
 
   const removePeer = (id) => {
@@ -229,19 +258,39 @@ export const useServerLinkStore = create((set, get) => {
         const peerMap = makePeerMap(peers);
         const hostEntry = peers.find((peer) => peer.role === 'host');
         const nextInterval = Number(payload?.intervalMs);
+        const participantId = payload.participantId;
+        const role = payload.role;
+
+        const existingSelf = peerMap[participantId];
+        const derivedSelfLabel =
+          existingSelf?.label ?? (role === 'host' ? HOST_DEFAULT_LABEL : participantId);
+
+        const selfEntry = {
+          id: participantId,
+          color:
+            existingSelf?.color ??
+            (role === 'host' ? HOST_DEFAULT_COLOR : colorPalette[Math.floor(Math.random() * colorPalette.length)]),
+          label: derivedSelfLabel,
+          role,
+          location: existingSelf?.location ?? null,
+          routes: existingSelf?.routes ?? null
+        };
+
+        const mergedPeers = { ...peerMap, [participantId]: selfEntry };
         clearReconnectTimer();
         set({
           connectionStatus: 'connected',
           sessionId: payload.sessionId,
           participantId: payload.participantId,
           role: payload.role,
-          peers: peerMap,
-          hostPeerId: hostEntry?.id ?? get().hostPeerId,
+          peers: mergedPeers,
+          hostPeerId: role === 'host' ? participantId : hostEntry?.id ?? get().hostPeerId,
           reconnectAttempts: 0,
           shouldReconnect: payload.role === 'client',
           logs: [],
           lastStateVersion: payload.state?.version ?? 0,
-          locationIntervalMs: Number.isFinite(nextInterval) ? nextInterval : DEFAULT_INTERVAL_MS
+          locationIntervalMs: Number.isFinite(nextInterval) ? nextInterval : DEFAULT_INTERVAL_MS,
+          selfLabel: derivedSelfLabel
         });
         addLog(
           payload.role === 'host'
@@ -258,14 +307,15 @@ export const useServerLinkStore = create((set, get) => {
         const peer = payload?.participant;
         if (peer?.id) {
           updatePeers([peer]);
-          addLog(`${peer.label ?? peer.id} linked`, 'info');
+          addLog(`${formatParticipantName(peer.id, peer.label)} linked`, 'info');
         }
         break;
       }
       case 'session:peer-left': {
         if (payload?.participantId) {
+          const displayName = formatParticipantName(payload.participantId);
           removePeer(payload.participantId);
-          addLog(`${payload.participantId} dropped`, 'warn');
+          addLog(`${displayName} dropped`, 'warn');
         }
         break;
       }
@@ -305,7 +355,7 @@ export const useServerLinkStore = create((set, get) => {
           }
         }));
         if (get().role === 'host') {
-          addLog(`${participantId} shared ${normalizedRoutes.length} route(s)`, 'info');
+          addLog(`${formatParticipantName(participantId)} shared ${normalizedRoutes.length} route(s)`, 'info');
         }
         break;
       }
@@ -322,7 +372,8 @@ export const useServerLinkStore = create((set, get) => {
       case 'session:message': {
         const { participantId, text } = payload ?? {};
         if (text) {
-          addLog(`${participantId ?? 'peer'}: ${text}`, 'message-received');
+          const senderId = participantId ?? null;
+          addLog(`${formatParticipantName(senderId)}: ${text}`, 'message-received');
         }
         break;
       }
@@ -415,9 +466,6 @@ export const useServerLinkStore = create((set, get) => {
       const payload = (text || '').trim();
       if (!payload) return;
       const sent = sendPacket({ type: 'participant:message', payload: { text: payload } });
-      if (sent) {
-        addLog(`me: ${payload}`, 'message-sent');
-      }
     },
     sendLocation: (location) => {
       if (!location || get().role !== 'client') return;
