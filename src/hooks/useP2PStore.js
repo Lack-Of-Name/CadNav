@@ -18,7 +18,7 @@ const peerConfig = {
     port: 443,
     path: '/',
     secure: true,
-    debug: 2,
+    debug: 1,
     pingInterval: 5000,
     config: {
         iceServers: [
@@ -47,6 +47,7 @@ export const useP2PStore = create((set, get) => ({
   myLocation: null,
   myRoutes: null,
   messageQueue: {}, // { [peerId]: [msg1, msg2] }
+  reconnectAttempts: 0,
 
   addLog: (msg, type = 'info') => {
     console.log(`[P2P] ${msg}`);
@@ -75,16 +76,19 @@ export const useP2PStore = create((set, get) => ({
       peers: {},
       peerInstance: null,
       targetReceiverId: null,
-      messageQueue: {}
+      messageQueue: {},
+      reconnectAttempts: 0
     });
     get().addLog('All connections closed and cleaned up');
   },
 
   reconnect: () => {
-      const { peerInstance } = get();
+      const { peerInstance, connectionStatus } = get();
+      if (connectionStatus === 'reconnecting') return;
+
       if (peerInstance && !peerInstance.destroyed) {
           get().addLog('Manual reconnection attempt...');
-          set({ connectionStatus: 'reconnecting' });
+          set({ connectionStatus: 'reconnecting', reconnectAttempts: 0 });
           peerInstance.reconnect();
       } else {
           get().addLog('Cannot reconnect: Peer instance destroyed or missing', 'error');
@@ -94,16 +98,21 @@ export const useP2PStore = create((set, get) => ({
 
   // Initialize as Receiver (Host)
   initializeReceiver: () => {
+      const { connectionStatus } = get();
+      if (connectionStatus === 'connecting' || connectionStatus === 'connected') {
+          get().addLog('Already initializing or connected. Ignoring request.');
+          return;
+      }
+
       get().cleanup();
       const shortId = generateShortId();
       const peer = new Peer(shortId, peerConfig);
 
-      set({ connectionStatus: 'connecting', peerInstance: peer });
+      set({ connectionStatus: 'connecting', peerInstance: peer, reconnectAttempts: 0 });
       get().addLog(`Initializing Receiver with ID: ${shortId}...`);
-      get().addLog(`Using PeerJS config: ${JSON.stringify(peerConfig)}`);
-
+      
       peer.on('open', (id) => {
-          set({ myPeerId: id, connectionStatus: 'connected' });
+          set({ myPeerId: id, connectionStatus: 'connected', reconnectAttempts: 0 });
           get().addLog(`Receiver ready. Share ID: ${id}`);
       });
 
@@ -116,12 +125,17 @@ export const useP2PStore = create((set, get) => ({
           set({ connectionStatus: 'reconnecting' });
           
           if (!peer.destroyed) {
-              get().addLog('Attempting to reconnect to server in 2s...', 'info');
+              const attempts = get().reconnectAttempts;
+              const delay = Math.min(1000 * Math.pow(2, attempts), 10000); // Exponential backoff
+              
+              get().addLog(`Attempting to reconnect in ${delay/1000}s (Attempt ${attempts + 1})...`, 'info');
+              
               setTimeout(() => {
                   if (!peer.destroyed && peer.disconnected) {
+                      set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
                       peer.reconnect();
                   }
-              }, 2000);
+              }, delay);
           }
       });
 
@@ -137,8 +151,16 @@ export const useP2PStore = create((set, get) => ({
           if (['network', 'disconnected', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
               set({ connectionStatus: 'reconnecting' });
               if (!peer.destroyed) {
-                  get().addLog('Attempting to reconnect due to error...', 'info');
-                  setTimeout(() => peer.reconnect(), 2000);
+                  const attempts = get().reconnectAttempts;
+                  const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
+                  
+                  get().addLog(`Attempting to reconnect due to error in ${delay/1000}s...`, 'info');
+                  setTimeout(() => {
+                      if (!peer.destroyed) {
+                          set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
+                          peer.reconnect();
+                      }
+                  }, delay);
               }
           }
       });
@@ -166,12 +188,11 @@ export const useP2PStore = create((set, get) => ({
       
       const peer = new Peer(peerConfig); // Auto-generated ID for sender
 
-      set({ connectionStatus: 'connecting', peerInstance: peer });
+      set({ connectionStatus: 'connecting', peerInstance: peer, reconnectAttempts: 0 });
       get().addLog(`Initializing Sender...`);
-      get().addLog(`Using PeerJS config: ${JSON.stringify(peerConfig)}`);
 
       peer.on('open', (id) => {
-          set({ myPeerId: id });
+          set({ myPeerId: id, reconnectAttempts: 0 });
           get().addLog(`Sender ready. Connecting to ${receiverId}...`);
           
           const conn = peer.connect(receiverId, { reliable: true });
@@ -183,12 +204,16 @@ export const useP2PStore = create((set, get) => ({
           set({ connectionStatus: 'reconnecting' });
           
           if (!peer.destroyed) {
-              get().addLog('Attempting to reconnect to server in 2s...', 'info');
+              const attempts = get().reconnectAttempts;
+              const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
+              
+              get().addLog(`Attempting to reconnect in ${delay/1000}s...`, 'info');
               setTimeout(() => {
                   if (!peer.destroyed && peer.disconnected) {
+                      set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
                       peer.reconnect();
                   }
-              }, 2000);
+              }, delay);
           }
       });
 
@@ -202,8 +227,16 @@ export const useP2PStore = create((set, get) => ({
           if (['network', 'disconnected', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
               set({ connectionStatus: 'reconnecting' });
               if (!peer.destroyed) {
-                  get().addLog('Attempting to reconnect due to error...', 'info');
-                  setTimeout(() => peer.reconnect(), 2000);
+                  const attempts = get().reconnectAttempts;
+                  const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
+                  
+                  get().addLog(`Attempting to reconnect due to error in ${delay/1000}s...`, 'info');
+                  setTimeout(() => {
+                      if (!peer.destroyed) {
+                          set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
+                          peer.reconnect();
+                      }
+                  }, delay);
               }
           }
       });
