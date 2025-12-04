@@ -14,6 +14,16 @@ const generateRoomId = () => {
 
 const APP_ID = 'IGSCadetOpenMap_v1';
 
+const rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+  ]
+};
+
 export const useP2PStore = create((set, get) => ({
   connectionStatus: 'disconnected', // 'disconnected', 'connected'
   roomId: null,
@@ -79,11 +89,19 @@ export const useP2PStore = create((set, get) => ({
   },
 
   joinSession: (roomId) => {
+      if (!window.isSecureContext) {
+          const msg = 'P2P requires a Secure Context (HTTPS or localhost). Connection aborted.';
+          get().addLog(msg, 'error');
+          alert(msg);
+          set({ connectionStatus: 'disconnected' });
+          return;
+      }
+
       try {
           set({ connectionStatus: 'connecting', roomId });
           get().addLog(`Joining session: ${roomId}...`);
 
-          const room = joinRoom({ appId: APP_ID }, roomId);
+          const room = joinRoom({ appId: APP_ID, rtcConfig }, roomId);
           const myPeerId = room.selfId;
           
           set({ 

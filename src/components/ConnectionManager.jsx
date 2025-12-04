@@ -146,6 +146,11 @@ export const ConnectionManager = () => {
       <h2 className="text-xl font-bold mb-4 text-slate-100">P2P Connection Manager</h2>
       
       <div className="mb-4 flex flex-col gap-2">
+        {!window.isSecureContext && (
+            <div className="bg-rose-900/20 border border-rose-500/50 text-rose-400 p-2 rounded text-xs text-center">
+                <strong>Warning:</strong> Insecure connection (HTTP). P2P features require HTTPS or localhost.
+            </div>
+        )}
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
                 <span className={`px-2 py-1 rounded text-sm font-semibold ${
