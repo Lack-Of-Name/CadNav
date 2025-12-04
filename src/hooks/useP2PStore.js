@@ -14,6 +14,13 @@ const generateRoomId = () => {
 
 const APP_ID = 'IGSCadetOpenMap_v1';
 
+const trackerUrls = [
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.btorrent.xyz',
+  'wss://tracker.webtorrent.io',
+  'wss://tracker.files.fm:7073/announce'
+];
+
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -101,7 +108,7 @@ export const useP2PStore = create((set, get) => ({
           set({ connectionStatus: 'connecting', roomId });
           get().addLog(`Joining session: ${roomId}...`);
 
-          const room = joinRoom({ appId: APP_ID, rtcConfig }, roomId);
+          const room = joinRoom({ appId: APP_ID, rtcConfig, trackerUrls }, roomId);
           const myPeerId = room.selfId;
           
           set({ 
@@ -215,10 +222,16 @@ export const useP2PStore = create((set, get) => ({
 
   sendRoutes: (routes) => {
       set({ myRoutes: routes });
-      const { actions } = get();
+      const { actions, peers } = get();
+      const peerCount = Object.keys(peers).length;
+      
       if (actions.sendRoutes) {
           actions.sendRoutes(routes);
-          get().addLog('Sent routes update');
+          if (peerCount > 0) {
+             get().addLog(`Sent routes update to ${peerCount} peers`);
+          } else {
+             get().addLog('Routes updated (No peers connected)', 'warning');
+          }
       }
   }
 }));
