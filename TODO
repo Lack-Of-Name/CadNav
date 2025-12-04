@@ -1,22 +1,16 @@
-## Core Peer-to-Peer Architecture (Serverless)
-- [x] Implement WebRTC P2P connections using Google STUN: `stun:stun.l.google.com:19302`
-- [x] Create “Start Session” button → generates WebRTC offer (SDP)
-- [x] Base64-encode offer → present as text + QR code
-- [x] Create “Join Session” UI → paste or scan offer code
-- [x] Generate WebRTC answer → Base64-encode → return to initiator
-- [x] Establish encrypted P2P DataChannel
-- [x] Auto-close connection when both peers close tab
+## Server Relay (Host ⇄ Client)
+- [x] Replace WebRTC experiment with a WebSocket relay server (`server/`)
+- [x] Swap frontend store to server-link client with reconnect logic
+- [ ] Persist server session logs to disk for after-action review
+- [ ] Add optional shared secret on session creation before exposing on the network
+- [ ] Add server CLI flag to enable TLS termination when running outside LAN
 
-## Location & Route sharing VIA WebRTC
-- [x] Ability to recieve location and route from others live
-- [x] Ability to disconnect
-- [x] Ability to throttle update rate within range (1-60 seconds)
-
-## Location Sharing (P2P)
-- [x] Use `navigator.geolocation.watchPosition` for real-time location
-- [x] Send `{lat, lng, accuracy, timestamp}` packets over DataChannel
-- [x] Throttle updates to ~1 per x seconds (1 per 10 seconds)
-- [x] Display connected peers and their routes on map in real time
+## Field Sync UX
+- [x] Rename the overlay + UI copy away from "P2P"
+- [x] Keep QR + code join flow using the new relay
+- [ ] Surface per-peer freshness (last GPS packet age) in the Connection Manager
+- [ ] Allow HQ to request a forced resync/ping from any field device
+- [ ] Let field devices download the latest host snapshot into their local routes list
 
 ## Offline Maps (Web App Compatible)
 - [ ] Use MapLibre GL JS with vector tiles
@@ -26,28 +20,10 @@
 - [ ] Detect offline state → switch to cached map tiles
 - [ ] Implement fallback if tile cache missing
 
-# Transition to allowing app usage offline
-
-## PWA Implementation
-- [ ] Install `vite-plugin-pwa` for service worker generation
-- [ ] Configure Web App Manifest (name, icons, theme color, display: standalone)
-- [ ] Implement Service Worker for asset caching (HTML, JS, CSS, Images)
-- [ ] Add offline status indicator to UI
-- [ ] Handle "Add to Home Screen" (A2HS) prompt
-
-## Local Data Persistence
-- [ ] Persist map state (center, zoom) to localStorage
-- [ ] Persist checkpoints and routes to IndexedDB/localStorage
-- [ ] Ensure app loads with last known state when offline
-
-## GNSS & Location Reliability
-- [ ] Configure `enableHighAccuracy: true` to ensure GNSS usage (when offline)
-- [ ] Handle "waiting for GPS" state when network location is unavailable
-
 ## Upgraded Share System
 - [ ] Add QR-based sharing for anything cross-device
 
 ## Testing Checklist
-- [ ] Ensure WebRTC connection works over LTE/WiFi
+- [ ] Exercise server relay over LTE/Starlink/VPN (packet loss scenarios)
 - [ ] Test offline map loading with airplane mode
-- [ ] Test reconnect behavior when connection drops
+- [ ] Confirm reconnect behavior after server restarts or network drops

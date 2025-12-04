@@ -1,134 +1,142 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { useP2PStore } from '../hooks/useP2PStore';
+import { useServerLinkStore } from '../hooks/useServerLinkStore';
 
 const QRScanner = ({ onScan, onClose }) => {
-  const [error, setError] = useState(null);
   const scannerRef = useRef(null);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const stopScanner = useCallback(async () => {
+    if (!scannerRef.current) return;
+    try {
+      await scannerRef.current.stop();
+    } catch (err) {
+      // ignore stop errors
+    } finally {
+      try {
+        await scannerRef.current.clear();
+      } catch (err) {
+        // ignore clear errors
+      }
+      scannerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
-    // Wait for the element to be available in the DOM
-    const timer = setTimeout(() => {
-        if (!document.getElementById("reader")) return;
+    let isMounted = true;
 
-        const html5QrCode = new Html5Qrcode("reader");
-        scannerRef.current = html5QrCode;
-        
-        const startScanner = async () => {
-            try {
-                await html5QrCode.start(
-                    { facingMode: "environment" },
-                    { fps: 10, qrbox: { width: 250, height: 250 } },
-                    (decodedText) => {
-                        onScan(decodedText);
-                        // Stop scanning after successful scan
-                        html5QrCode.stop().catch(console.error);
-                    },
-                    (errorMessage) => {
-                        // parse error, ignore it.
-                    }
-                );
-            } catch (err) {
-                console.error("Failed to start scanner", err);
-                setError("Camera access denied or unavailable. Please ensure you are using HTTPS and have granted camera permissions.");
-            }
-        };
+    const startScanner = async () => {
+      try {
+        const devices = await Html5Qrcode.getCameras();
+        if (!isMounted) return;
+        const preferredDevice = devices.find((device) => /back|rear|environment/i.test(device.label || '')) ?? devices[0];
+        const cameraConfig = preferredDevice
+          ? { deviceId: { exact: preferredDevice.id } }
+          : { facingMode: 'environment' };
+        const qrbox = Math.min(window.innerWidth, 320);
+        const scanner = new Html5Qrcode('qr-reader', { verbose: false });
+        scannerRef.current = scanner;
+        await scanner.start(
+          cameraConfig,
+          { fps: 10, qrbox: { width: qrbox, height: qrbox } },
+          async (decodedText) => {
+            await stopScanner();
+            onScan(decodedText);
+          },
+          () => {}
+        );
+      } catch (err) {
+        if (!isMounted) return;
+        setErrorMessage(err?.message ?? 'Camera unavailable');
+      }
+    };
 
-        startScanner();
-    }, 100);
+    startScanner();
 
     return () => {
-        clearTimeout(timer);
-        if (scannerRef.current && scannerRef.current.isScanning) {
-            scannerRef.current.stop().catch(console.error).finally(() => {
-                scannerRef.current.clear();
-            });
-        }
+      isMounted = false;
+      stopScanner();
     };
-  }, [onScan]);
+  }, [onScan, stopScanner]);
 
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center">
-        {/* Header */}
-        <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-[10000]">
-            <h3 className="text-white font-bold text-lg">Scan Session Code</h3>
-            <button 
-                onClick={onClose} 
-                className="bg-slate-800/80 text-white p-3 rounded-full hover:bg-slate-700 border border-slate-600 backdrop-blur-sm"
-                aria-label="Close Camera"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-        </div>
-
-        <div className="w-full max-w-lg px-4 relative">
-            {error ? (
-                <div className="bg-red-900/20 border border-red-500/50 text-red-400 p-6 rounded-lg text-center backdrop-blur-sm">
-                    <p className="mb-2 font-bold text-lg">Camera Error</p>
-                    <p className="text-sm">{error}</p>
-                    <button onClick={onClose} className="mt-6 px-6 py-2 bg-slate-800 rounded border border-slate-700 text-white">Close</button>
-                </div>
-            ) : (
-                <div className="relative rounded-xl overflow-hidden border-2 border-slate-700 shadow-2xl bg-black">
-                    <div id="reader" className="w-full h-[400px] bg-black"></div>
-                    <div className="absolute inset-0 pointer-events-none border-[30px] border-black/30"></div>
-                </div>
-            )}
-        </div>
-
-        <p className="text-slate-400 mt-8 text-sm font-medium text-center px-4">
-            Point camera at the HQ Session QR Code
-        </p>
-    </div>,
-    document.body
+  return (
+    <div className="fixed inset-0 z-[2000] bg-black/90 flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-center text-sm text-slate-300">
+        <div id="qr-reader" className="aspect-square w-full overflow-hidden rounded-xl bg-slate-950"></div>
+        {errorMessage && <p className="mt-3 text-xs text-rose-300">{errorMessage}</p>}
+      </div>
+      <button
+        onClick={async () => {
+          await stopScanner();
+          onClose();
+        }}
+        className="mt-4 w-full max-w-sm rounded-full bg-slate-700 py-2 text-white hover:bg-slate-600"
+      >
+        Close Camera
+      </button>
+    </div>
   );
 };
 
 export const ConnectionManager = () => {
-  const { 
-    connectionStatus, 
-    roomId,
-    initializeReceiver,
-    connectToReceiver,
-    logs, 
+  const {
+    connectionStatus,
+    sessionId,
+    startHostSession,
+    joinSession,
+    logs,
     sendMessage,
-    cleanup,
-    reconnect,
+    disconnect,
     peers,
-    myColor,
-    clearLogs
-  } = useP2PStore();
+    clearLogs,
+    role,
+    locationIntervalMs,
+    updateLocationInterval
+  } = useServerLinkStore();
 
   const [remoteInput, setRemoteInput] = useState('');
   const [messageInput, setMessageInput] = useState('');
   const [activeTab, setActiveTab] = useState('receiver'); // 'receiver' or 'sender'
   const [showScanner, setShowScanner] = useState(false);
+  const [intervalSeconds, setIntervalSeconds] = useState(() => Math.round((locationIntervalMs ?? 10000) / 1000));
   const logsEndRef = useRef(null);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
+  useEffect(() => {
+    if (role === 'client') {
+      setActiveTab('sender');
+    } else if (role === 'host') {
+      setActiveTab('receiver');
+    }
+  }, [role]);
+
+  useEffect(() => {
+    setIntervalSeconds(Math.round((locationIntervalMs ?? 10000) / 1000));
+  }, [locationIntervalMs]);
+
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(roomId);
+    if (!sessionId) return;
+    navigator.clipboard.writeText(sessionId);
     alert('ID copied to clipboard!');
   };
 
   const handleStartReceiver = () => {
-    initializeReceiver();
+    startHostSession();
   };
 
   const handleConnect = () => {
     if (!remoteInput) return;
-    connectToReceiver(remoteInput);
+    joinSession(remoteInput);
   };
 
   const handleScan = (decodedText) => {
       setRemoteInput(decodedText);
       setShowScanner(false);
-      connectToReceiver(decodedText);
+      joinSession(decodedText);
   };
 
   const handleSend = (e) => {
@@ -140,40 +148,32 @@ export const ConnectionManager = () => {
   };
 
   const connectedPeersCount = Object.keys(peers).length;
+  const statusBadgeClass =
+    connectionStatus === 'connected'
+      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+      : connectionStatus === 'connecting'
+        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50'
+        : connectionStatus === 'reconnecting'
+          ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50'
+          : 'bg-slate-800 text-slate-400 border border-slate-700';
 
   return (
     <div className="p-4 bg-slate-900 text-slate-100 rounded-lg shadow-md max-w-md mx-auto mt-4 border border-slate-800">
-      <h2 className="text-xl font-bold mb-4 text-slate-100">P2P Connection Manager</h2>
+      <h2 className="text-xl font-bold mb-4 text-slate-100">Server Connection Manager</h2>
       
       <div className="mb-4 flex flex-col gap-2">
-        {!window.isSecureContext && (
-            <div className="bg-rose-900/20 border border-rose-500/50 text-rose-400 p-2 rounded text-xs text-center">
-                <strong>Warning:</strong> Insecure connection (HTTP). P2P features require HTTPS or localhost.
-            </div>
-        )}
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 rounded text-sm font-semibold ${
-                    connectionStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 
-                    connectionStatus === 'connecting' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50' : 
-                    connectionStatus === 'reconnecting' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' :
-                    'bg-slate-800 text-slate-400 border border-slate-700'
-                }`}>
+                <span className={`px-2 py-1 rounded text-sm font-semibold ${statusBadgeClass}`}>
                 Status: {connectionStatus}
                 </span>
                 {connectionStatus === 'connected' && (
-                    <span className="text-xs text-slate-400">({connectedPeersCount} peer{connectedPeersCount !== 1 ? 's' : ''})</span>
+                  <span className="text-xs text-slate-400">({connectedPeersCount} peer{connectedPeersCount !== 1 ? 's' : ''})</span>
                 )}
             </div>
             <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full border border-white/20" style={{ backgroundColor: myColor }} title="My Color"></div>
                 {connectionStatus !== 'disconnected' && (
-                    <div className="flex gap-2">
-                        {connectionStatus === 'reconnecting' && (
-                            <button onClick={reconnect} className="text-sm text-sky-400 hover:text-sky-300 underline">Retry</button>
-                        )}
-                        <button onClick={cleanup} className="text-sm text-rose-400 hover:text-rose-300 underline">Disconnect</button>
-                    </div>
+                    <button onClick={disconnect} className="text-sm text-rose-400 hover:text-rose-300 underline">Disconnect</button>
                 )}
             </div>
         </div>
@@ -184,7 +184,7 @@ export const ConnectionManager = () => {
                 {Object.values(peers).map(peer => (
                     <div key={peer.id} className="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded border border-slate-700 text-xs">
                         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: peer.color || '#ccc' }}></div>
-                        <span className="text-slate-300" title={peer.id}>{peer.id.substring(0, 6)}</span>
+                        <span className="text-slate-300" title={peer.id}>{peer.label ?? peer.id.substring(0, 6)}</span>
                     </div>
                 ))}
             </div>
@@ -197,7 +197,7 @@ export const ConnectionManager = () => {
         className={`pb-2 transition-colors ${activeTab === 'receiver' ? 'border-b-2 border-sky-500 font-bold text-sky-400' : 'text-slate-400 hover:text-slate-200'}`}
         onClick={() => setActiveTab('receiver')}
         >
-        Receiver (HQ)
+        Receiver (Host)
         </button>
         <button 
         className={`pb-2 transition-colors ${activeTab === 'sender' ? 'border-b-2 border-sky-500 font-bold text-sky-400' : 'text-slate-400 hover:text-slate-200'}`}
@@ -207,7 +207,7 @@ export const ConnectionManager = () => {
         </button>
       </div>
 
-      {/* RECEIVER FLOW */}
+      {/* HOST FLOW */}
       {activeTab === 'receiver' && (
         <div>
           <button 
@@ -215,46 +215,70 @@ export const ConnectionManager = () => {
             className="w-full bg-sky-600 text-white py-2 rounded hover:bg-sky-500 transition font-semibold mb-4"
             disabled={connectionStatus !== 'disconnected'}
           >
-            {connectionStatus === 'disconnected' ? 'Start Session' : 'Session Active'}
+            {connectionStatus === 'disconnected' ? 'Create Room' : 'Room Active'}
           </button>
 
-          {connectionStatus === 'connecting' && !roomId && (
+          {connectionStatus === 'connecting' && !sessionId && (
              <div className="flex flex-col items-center justify-center py-8 space-y-4">
                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500"></div>
                <p className="text-slate-400 text-sm">Initializing Session...</p>
              </div>
           )}
 
-          {roomId && (
+          {sessionId && (
             <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
               <div className="bg-amber-500/10 p-3 rounded border border-amber-500/30 text-sm text-amber-200">
-                Share this <strong>Session Code</strong> with field agents
+                Share this <strong>Room Code</strong> with field devices
               </div>
               <div className="flex justify-center bg-white p-4 rounded-lg">
-                <QRCodeSVG value={roomId} size={192} />
+                <QRCodeSVG value={sessionId} size={192} />
               </div>
               <div className="flex gap-2">
                 <input 
                     readOnly 
-                    value={roomId} 
+                    value={sessionId} 
                     className="flex-1 p-2 text-center text-lg font-bold tracking-widest border border-slate-700 rounded bg-slate-950 text-sky-400 font-mono focus:outline-none"
                 />
                 <button onClick={copyToClipboard} className="px-4 border border-slate-600 rounded hover:bg-slate-800 text-slate-300 transition">
                     Copy
                 </button>
               </div>
+
+              <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-400">
+                  <span>Field update cadence</span>
+                  <span className="font-semibold text-slate-200">{intervalSeconds}s</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="120"
+                  step="5"
+                  value={intervalSeconds}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    setIntervalSeconds(next);
+                    updateLocationInterval(next);
+                  }}
+                  className="mt-3 w-full accent-sky-500"
+                  disabled={role !== 'host'}
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  Senders only transmit location/routes upstream. HQ receives every {intervalSeconds} seconds (5–120s).
+                </p>
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* SENDER FLOW */}
+      {/* FIELD FLOW */}
       {activeTab === 'sender' && (
         <div>
            {connectionStatus === 'disconnected' && (
              <div className="space-y-4">
                 <div className="bg-amber-500/10 p-3 rounded border border-amber-500/30 text-sm text-amber-200">
-                  Enter the <strong>Session Code</strong> from HQ
+                  Enter the <strong>Room Code</strong> from HQ
                 </div>
                 
                 <div className="flex gap-2">
@@ -278,7 +302,7 @@ export const ConnectionManager = () => {
                   className="w-full bg-emerald-600 text-white py-2 rounded hover:bg-emerald-500 transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={!remoteInput}
                 >
-                  Connect to HQ
+                  Join Room
                 </button>
              </div>
            )}
@@ -286,7 +310,14 @@ export const ConnectionManager = () => {
            {connectionStatus === 'connecting' && (
              <div className="flex flex-col items-center justify-center py-8 space-y-4">
                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500"></div>
-               <p className="text-slate-400 text-sm">Connecting to HQ...</p>
+               <p className="text-slate-400 text-sm">Connecting to host...</p>
+             </div>
+           )}
+
+           {connectionStatus === 'reconnecting' && (
+             <div className="flex flex-col items-center justify-center py-8 space-y-4">
+               <div className="animate-pulse rounded-full h-8 w-8 border-b-2 border-orange-400"></div>
+               <p className="text-slate-400 text-sm">Trying to relink...</p>
              </div>
            )}
         </div>

@@ -1304,17 +1304,14 @@ const MapView = ({
           />
         )}
 
-        {Object.values(peers).map(peer => {
-          if (!peer.location || typeof peer.location.lat !== 'number' || typeof peer.location.lng !== 'number') return null;
-          return (
-            <Marker
-              key={`peer-loc-${peer.id}`}
-              position={[peer.location.lat, peer.location.lng]}
-              icon={createPeerIcon(peer.color)}
-              interactive={false}
-            />
-          );
-        })}
+        {Object.values(peers).map(peer => peer.location && (
+          <Marker
+            key={`peer-loc-${peer.id}`}
+            position={[peer.location.lat, peer.location.lng]}
+            icon={createPeerIcon(peer.color)}
+            interactive={false}
+          />
+        ))}
 
 
 
@@ -1370,21 +1367,28 @@ const MapView = ({
           )
         ))}
 
-        {Object.values(peers).map(peer => 
-          peer.routes && peer.routes.map(route => {
-            if (!route.items || route.items.length < 2) return null;
-            const validPositions = route.items
-              .filter(cp => cp && cp.position && typeof cp.position.lat === 'number' && typeof cp.position.lng === 'number')
-              .map(cp => [cp.position.lat, cp.position.lng]);
-            
-            if (validPositions.length < 2) return null;
-
+        {Object.values(peers).map((peer) =>
+          (peer.routes ?? []).map((route) => {
+            if (!Array.isArray(route.items) || route.items.length < 2) {
+              return null;
+            }
+            const routePositions = route.items
+              .map((point) => {
+                const source = point?.position ?? point;
+                const lat = typeof source?.lat === 'number' ? source.lat : null;
+                const lng = typeof source?.lng === 'number' ? source.lng : null;
+                return lat != null && lng != null ? [lat, lng] : null;
+              })
+              .filter(Boolean);
+            if (routePositions.length < 2) {
+              return null;
+            }
             return (
-                <Polyline
-                  key={`peer-route-${peer.id}-${route.id}`}
-                  positions={validPositions}
-                  pathOptions={{ color: peer.color || '#22c55e', weight: 4, dashArray: '10 6', opacity: 0.6 }}
-                />
+              <Polyline
+                key={`peer-route-${peer.id}-${route.id}`}
+                positions={routePositions}
+                pathOptions={{ color: peer.color || '#22c55e', weight: 4, dashArray: '10 6', opacity: 0.6 }}
+              />
             );
           })
         )}
