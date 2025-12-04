@@ -84,6 +84,7 @@ export const ConnectionManager = () => {
     logs, 
     sendMessage,
     cleanup,
+    reconnect,
     peers,
     myColor,
     clearLogs
@@ -136,7 +137,12 @@ export const ConnectionManager = () => {
       <div className="mb-4 flex flex-col gap-2">
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 rounded text-sm font-semibold ${connectionStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : connectionStatus === 'connecting' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                <span className={`px-2 py-1 rounded text-sm font-semibold ${
+                    connectionStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 
+                    connectionStatus === 'connecting' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50' : 
+                    connectionStatus === 'reconnecting' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' :
+                    'bg-slate-800 text-slate-400 border border-slate-700'
+                }`}>
                 Status: {connectionStatus}
                 </span>
                 {connectionStatus === 'connected' && (
@@ -146,7 +152,12 @@ export const ConnectionManager = () => {
             <div className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded-full border border-white/20" style={{ backgroundColor: myColor }} title="My Color"></div>
                 {connectionStatus !== 'disconnected' && (
-                    <button onClick={cleanup} className="text-sm text-rose-400 hover:text-rose-300 underline">Disconnect</button>
+                    <div className="flex gap-2">
+                        {connectionStatus === 'reconnecting' && (
+                            <button onClick={reconnect} className="text-sm text-sky-400 hover:text-sky-300 underline">Retry</button>
+                        )}
+                        <button onClick={cleanup} className="text-sm text-rose-400 hover:text-rose-300 underline">Disconnect</button>
+                    </div>
                 )}
             </div>
         </div>
