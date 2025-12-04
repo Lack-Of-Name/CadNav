@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useP2PStore } from '../hooks/useP2PStore';
@@ -48,7 +49,7 @@ const QRScanner = ({ onScan, onClose }) => {
     };
   }, [onScan]);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center">
         {/* Header */}
         <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent z-[10000]">
@@ -80,14 +81,15 @@ const QRScanner = ({ onScan, onClose }) => {
         <p className="text-slate-400 mt-8 text-sm font-medium text-center px-4">
             Point camera at the HQ Session QR Code
         </p>
-    </div>
+    </div>,
+    document.body
   );
 };
 
 export const ConnectionManager = () => {
   const { 
     connectionStatus, 
-    myPeerId,
+    roomId,
     initializeReceiver,
     connectToReceiver,
     logs, 
@@ -110,7 +112,7 @@ export const ConnectionManager = () => {
   }, [logs]);
 
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(myPeerId);
+    navigator.clipboard.writeText(roomId);
     alert('ID copied to clipboard!');
   };
 
@@ -211,25 +213,25 @@ export const ConnectionManager = () => {
             {connectionStatus === 'disconnected' ? 'Start Session' : 'Session Active'}
           </button>
 
-          {connectionStatus === 'connecting' && !myPeerId && (
+          {connectionStatus === 'connecting' && !roomId && (
              <div className="flex flex-col items-center justify-center py-8 space-y-4">
                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500"></div>
                <p className="text-slate-400 text-sm">Initializing Session...</p>
              </div>
           )}
 
-          {myPeerId && (
+          {roomId && (
             <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
               <div className="bg-amber-500/10 p-3 rounded border border-amber-500/30 text-sm text-amber-200">
                 Share this <strong>Session Code</strong> with field agents
               </div>
               <div className="flex justify-center bg-white p-4 rounded-lg">
-                <QRCodeSVG value={myPeerId} size={192} />
+                <QRCodeSVG value={roomId} size={192} />
               </div>
               <div className="flex gap-2">
                 <input 
                     readOnly 
-                    value={myPeerId} 
+                    value={roomId} 
                     className="flex-1 p-2 text-center text-lg font-bold tracking-widest border border-slate-700 rounded bg-slate-950 text-sky-400 font-mono focus:outline-none"
                 />
                 <button onClick={copyToClipboard} className="px-4 border border-slate-600 rounded hover:bg-slate-800 text-slate-300 transition">

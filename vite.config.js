@@ -44,6 +44,9 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: Number(env.VITE_PREVIEW_PORT || 4173),
       https: resolveHttpsConfig(env)
+    },
+    define: {
+      global: 'window',
     }
   };
 });
