@@ -9,13 +9,13 @@ const getRandomColor = () => {
 
 // Helper to generate a short ID
 const generateShortId = () => {
-    return Math.random().toString(36).substr(2, 6).toUpperCase();
+    // Prefix to avoid collisions and ensure string type
+    return 'CN-' + Math.random().toString(36).substr(2, 6).toUpperCase();
 };
 
 const peerConfig = {
-    host: '0.peerjs.com',
-    port: 443,
-    secure: true,
+    debug: 2,
+    pingInterval: 5000,
 };
 
 export const useP2PStore = create((set, get) => ({
@@ -80,6 +80,10 @@ export const useP2PStore = create((set, get) => ({
 
       peer.on('error', (err) => {
           get().addLog(`PeerJS Error: ${err.type} - ${err.message}`, 'error');
+          if (err.type === 'network' || err.type === 'disconnected') {
+              get().addLog('Attempting to reconnect...', 'info');
+              peer.reconnect();
+          }
       });
   },
 

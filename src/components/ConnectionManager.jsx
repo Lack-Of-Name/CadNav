@@ -4,43 +4,73 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useP2PStore } from '../hooks/useP2PStore';
 
 const QRScanner = ({ onScan, onClose }) => {
+  const [error, setError] = useState(null);
+
   useEffect(() => {
     const html5QrCode = new Html5Qrcode("reader");
-    let isMounted = true;
-
-    const startScanning = async () => {
+    
+    const startScanner = async () => {
         try {
             await html5QrCode.start(
                 { facingMode: "environment" },
                 { fps: 10, qrbox: { width: 250, height: 250 } },
                 (decodedText) => {
-                    if (isMounted) {
-                        onScan(decodedText);
-                    }
+                    onScan(decodedText);
+                    // Stop scanning after successful scan
+                    html5QrCode.stop().catch(console.error);
                 },
-                (errorMessage) => {
-                    // ignore
-                }
+                () => {} // Ignore frame scan errors
             );
         } catch (err) {
             console.error("Failed to start scanner", err);
+            setError("Camera access denied or unavailable. Please check permissions.");
         }
     };
 
-    startScanning();
+    startScanner();
 
     return () => {
-        isMounted = false;
-        html5QrCode.stop().catch(err => console.warn("Failed to stop scanner", err)).finally(() => {
+        if (html5QrCode.isScanning) {
+            html5QrCode.stop().catch(console.error).finally(() => html5QrCode.clear());
+        } else {
             html5QrCode.clear();
-        });
+        }
     };
   }, [onScan]);
 
   return (
-    <div className="fixed inset-0 z-[2000] bg-black/90 flex flex-col items-center justify-center p-4">
-        <div id="reader" className="w-full max-w-sm bg-black rounded-lg overflow-hidden"></div>
-        <button onClick={onClose} className="mt-4 px-6 py-2 bg-slate-700 text-white rounded-full">Close Camera</button>
+    <div className="fixed inset-0 z-[3000] bg-black flex flex-col items-center justify-center p-4">
+        {/* Top Close Button */}
+        <button 
+            onClick={onClose} 
+            className="absolute top-6 right-6 z-[3010] bg-slate-800 text-white p-3 rounded-full hover:bg-slate-700 border border-slate-600 shadow-lg"
+            aria-label="Close Camera"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+
+        <div className="w-full max-w-md relative">
+            {error ? (
+                <div className="bg-red-500/10 border border-red-500/50 text-red-400 p-6 rounded-lg text-center">
+                    <p className="mb-2 font-bold">Camera Error</p>
+                    <p className="text-sm">{error}</p>
+                </div>
+            ) : (
+                <div id="reader" className="w-full aspect-square bg-black rounded-lg overflow-hidden border-2 border-slate-700 shadow-2xl"></div>
+            )}
+        </div>
+
+        <p className="text-slate-400 mt-8 text-sm font-medium text-center">
+            Point camera at the Session QR Code
+        </p>
+
+        {/* Bottom Close Button (Backup) */}
+        <button 
+            onClick={onClose} 
+            className="mt-8 px-8 py-3 bg-slate-800 text-white rounded-full font-semibold border border-slate-700 hover:bg-slate-700 transition-colors"
+        >
+            Cancel Scan
+        </button>
     </div>
   );
 };
