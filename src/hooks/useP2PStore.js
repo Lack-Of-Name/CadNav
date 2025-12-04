@@ -19,7 +19,6 @@ const peerConfig = {
     path: '/',
     secure: true,
     debug: 1,
-    pingInterval: 5000,
     config: {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -67,6 +66,7 @@ export const useP2PStore = create((set, get) => ({
     });
 
     if (peerInstance) {
+        peerInstance.removeAllListeners();
         peerInstance.destroy();
     }
 
@@ -82,18 +82,125 @@ export const useP2PStore = create((set, get) => ({
     get().addLog('All connections closed and cleaned up');
   },
 
+  // Hard Reconnect: Destroy and recreate peer with same ID
+  hardReconnect: () => {
+      const { myPeerId, peerInstance } = get();
+      if (!myPeerId) return;
+
+      get().addLog('Performing HARD RECONNECT (Destroy & Recreate)...', 'warning');
+      
+      if (peerInstance) {
+          peerInstance.removeAllListeners();
+          peerInstance.destroy();
+      }
+
+      // Wait a bit for server to clear the ID
+      setTimeout(() => {
+          const peer = new Peer(myPeerId, peerConfig);
+          set({ peerInstance: peer, connectionStatus: 'reconnecting' });
+          get().setupPeerListeners(peer);
+      }, 1000);
+  },
+
   reconnect: () => {
-      const { peerInstance, connectionStatus } = get();
+      const { peerInstance, connectionStatus, reconnectAttempts } = get();
       if (connectionStatus === 'reconnecting') return;
+
+      // If we have failed too many times, try a hard reset
+      if (reconnectAttempts > 3) {
+          get().hardReconnect();
+          return;
+      }
 
       if (peerInstance && !peerInstance.destroyed) {
           get().addLog('Manual reconnection attempt...');
-          set({ connectionStatus: 'reconnecting', reconnectAttempts: 0 });
+          set({ connectionStatus: 'reconnecting' });
           peerInstance.reconnect();
       } else {
-          get().addLog('Cannot reconnect: Peer instance destroyed or missing', 'error');
-          set({ connectionStatus: 'disconnected' });
+          get().hardReconnect();
       }
+  },
+
+  setupPeerListeners: (peer) => {
+      peer.on('open', (id) => {
+          set({ myPeerId: id, connectionStatus: 'connected', reconnectAttempts: 0 });
+          get().addLog(`Peer Ready. ID: ${id}`);
+          
+          // If we are a sender, reconnect to target
+          const { targetReceiverId } = get();
+          if (targetReceiverId) {
+              get().addLog(`Reconnecting to HQ: ${targetReceiverId}...`);
+              const conn = peer.connect(targetReceiverId, { reliable: true });
+              get().handleConnection(conn);
+          }
+      });
+
+      peer.on('connection', (conn) => {
+          get().handleConnection(conn);
+      });
+
+      peer.on('disconnected', () => {
+          get().addLog('Peer disconnected from server.', 'warning');
+          set({ connectionStatus: 'reconnecting' });
+          
+          if (!peer.destroyed) {
+              const attempts = get().reconnectAttempts;
+              const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
+              
+              get().addLog(`Soft reconnect in ${delay/1000}s (Attempt ${attempts + 1})...`, 'info');
+              
+              setTimeout(() => {
+                  if (!peer.destroyed && peer.disconnected) {
+                      set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
+                      peer.reconnect();
+                  }
+              }, delay);
+          }
+      });
+
+      peer.on('close', () => {
+          get().addLog('Peer closed (destroyed).', 'error');
+          set({ connectionStatus: 'disconnected' }); // Don't clear ID yet, might want to recover
+      });
+
+      peer.on('error', (err) => {
+          get().addLog(`PeerJS Error: ${err.type} - ${err.message}`, 'error');
+          
+          if (['network', 'disconnected', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
+              set({ connectionStatus: 'reconnecting' });
+              
+              const attempts = get().reconnectAttempts;
+              // If we get an error during reconnect, maybe try hard reconnect sooner
+              if (attempts > 2) {
+                  get().hardReconnect();
+                  return;
+              }
+
+              if (!peer.destroyed) {
+                  const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
+                  setTimeout(() => {
+                      if (!peer.destroyed) {
+                          set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
+                          peer.reconnect();
+                      }
+                  }, delay);
+              }
+          } else if (err.type === 'unavailable-id') {
+              get().addLog('ID taken. Trying new ID...', 'error');
+              // CRITICAL CHANGE: If ID is taken, we MUST generate a new one to break the loop.
+              // We cannot recover the old ID if the server thinks it's taken.
+              get().cleanup();
+              
+              // Auto-restart with NEW ID if we were a receiver
+              // We can't easily know if we were "just starting" or "reconnecting", 
+              // but if we are in this state, the user experience is broken anyway.
+              // Let's just stop and let the user click "Start" again, or auto-restart.
+              
+              // Better: Just notify user.
+              get().addLog('Session ID collision. Please restart session.', 'error');
+              set({ connectionStatus: 'disconnected', myPeerId: null });
+          }
+      });
   },
 
   // Initialize as Receiver (Host)
@@ -111,59 +218,7 @@ export const useP2PStore = create((set, get) => ({
       set({ connectionStatus: 'connecting', peerInstance: peer, reconnectAttempts: 0 });
       get().addLog(`Initializing Receiver with ID: ${shortId}...`);
       
-      peer.on('open', (id) => {
-          set({ myPeerId: id, connectionStatus: 'connected', reconnectAttempts: 0 });
-          get().addLog(`Receiver ready. Share ID: ${id}`);
-      });
-
-      peer.on('connection', (conn) => {
-          get().handleConnection(conn);
-      });
-
-      peer.on('disconnected', () => {
-          get().addLog('Peer disconnected from server.', 'warning');
-          set({ connectionStatus: 'reconnecting' });
-          
-          if (!peer.destroyed) {
-              const attempts = get().reconnectAttempts;
-              const delay = Math.min(1000 * Math.pow(2, attempts), 10000); // Exponential backoff
-              
-              get().addLog(`Attempting to reconnect in ${delay/1000}s (Attempt ${attempts + 1})...`, 'info');
-              
-              setTimeout(() => {
-                  if (!peer.destroyed && peer.disconnected) {
-                      set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
-                      peer.reconnect();
-                  }
-              }, delay);
-          }
-      });
-
-      peer.on('close', () => {
-          get().addLog('Peer closed (destroyed).', 'error');
-          set({ connectionStatus: 'disconnected', myPeerId: null });
-      });
-
-      peer.on('error', (err) => {
-          get().addLog(`PeerJS Error: ${err.type} - ${err.message}`, 'error');
-          
-          // Handle specific errors that might require reconnection
-          if (['network', 'disconnected', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
-              set({ connectionStatus: 'reconnecting' });
-              if (!peer.destroyed) {
-                  const attempts = get().reconnectAttempts;
-                  const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
-                  
-                  get().addLog(`Attempting to reconnect due to error in ${delay/1000}s...`, 'info');
-                  setTimeout(() => {
-                      if (!peer.destroyed) {
-                          set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
-                          peer.reconnect();
-                      }
-                  }, delay);
-              }
-          }
-      });
+      get().setupPeerListeners(peer);
   },
 
   // Initialize as Sender (Client) and connect to Receiver
@@ -191,55 +246,10 @@ export const useP2PStore = create((set, get) => ({
       set({ connectionStatus: 'connecting', peerInstance: peer, reconnectAttempts: 0 });
       get().addLog(`Initializing Sender...`);
 
-      peer.on('open', (id) => {
-          set({ myPeerId: id, reconnectAttempts: 0 });
-          get().addLog(`Sender ready. Connecting to ${receiverId}...`);
-          
-          const conn = peer.connect(receiverId, { reliable: true });
-          get().handleConnection(conn);
-      });
-
-      peer.on('disconnected', () => {
-          get().addLog('Peer disconnected from server.', 'warning');
-          set({ connectionStatus: 'reconnecting' });
-          
-          if (!peer.destroyed) {
-              const attempts = get().reconnectAttempts;
-              const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
-              
-              get().addLog(`Attempting to reconnect in ${delay/1000}s...`, 'info');
-              setTimeout(() => {
-                  if (!peer.destroyed && peer.disconnected) {
-                      set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
-                      peer.reconnect();
-                  }
-              }, delay);
-          }
-      });
-
-      peer.on('close', () => {
-          get().addLog('Peer closed (destroyed).', 'error');
-          set({ connectionStatus: 'disconnected', myPeerId: null });
-      });
-
-      peer.on('error', (err) => {
-          get().addLog(`PeerJS Error: ${err.type} - ${err.message}`, 'error');
-          if (['network', 'disconnected', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
-              set({ connectionStatus: 'reconnecting' });
-              if (!peer.destroyed) {
-                  const attempts = get().reconnectAttempts;
-                  const delay = Math.min(1000 * Math.pow(2, attempts), 10000);
-                  
-                  get().addLog(`Attempting to reconnect due to error in ${delay/1000}s...`, 'info');
-                  setTimeout(() => {
-                      if (!peer.destroyed) {
-                          set(state => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
-                          peer.reconnect();
-                      }
-                  }, delay);
-              }
-          }
-      });
+      get().setupPeerListeners(peer);
+      
+      // Note: The actual connection to receiver happens in 'open' event listener
+      // because we need our own ID first.
   },
 
   queueMessage: (peerId, msgObj) => {
