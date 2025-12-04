@@ -12,6 +12,12 @@ const generateShortId = () => {
     return Math.random().toString(36).substr(2, 6).toUpperCase();
 };
 
+const peerConfig = {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true,
+};
+
 export const useP2PStore = create((set, get) => ({
   connectionStatus: 'disconnected', // 'disconnected', 'connecting', 'connected'
   myPeerId: null,
@@ -57,10 +63,11 @@ export const useP2PStore = create((set, get) => ({
   initializeReceiver: () => {
       get().cleanup();
       const shortId = generateShortId();
-      const peer = new Peer(shortId);
+      const peer = new Peer(shortId, peerConfig);
 
       set({ connectionStatus: 'connecting', peerInstance: peer });
       get().addLog(`Initializing Receiver with ID: ${shortId}...`);
+      get().addLog(`Using PeerJS config: ${JSON.stringify(peerConfig)}`);
 
       peer.on('open', (id) => {
           set({ myPeerId: id, connectionStatus: 'connected' });
@@ -79,10 +86,11 @@ export const useP2PStore = create((set, get) => ({
   // Initialize as Sender (Client) and connect to Receiver
   connectToReceiver: (receiverId) => {
       get().cleanup();
-      const peer = new Peer(); // Auto-generated ID for sender
+      const peer = new Peer(peerConfig); // Auto-generated ID for sender
 
       set({ connectionStatus: 'connecting', peerInstance: peer });
       get().addLog(`Initializing Sender...`);
+      get().addLog(`Using PeerJS config: ${JSON.stringify(peerConfig)}`);
 
       peer.on('open', (id) => {
           set({ myPeerId: id });

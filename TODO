@@ -26,12 +26,26 @@
 - [ ] Detect offline state → switch to cached map tiles
 - [ ] Implement fallback if tile cache missing
 
+# Transition to allowing app usage offline
+
+## PWA Implementation
+- [ ] Install `vite-plugin-pwa` for service worker generation
+- [ ] Configure Web App Manifest (name, icons, theme color, display: standalone)
+- [ ] Implement Service Worker for asset caching (HTML, JS, CSS, Images)
+- [ ] Add offline status indicator to UI
+- [ ] Handle "Add to Home Screen" (A2HS) prompt
+
+## Local Data Persistence
+- [ ] Persist map state (center, zoom) to localStorage
+- [ ] Persist checkpoints and routes to IndexedDB/localStorage
+- [ ] Ensure app loads with last known state when offline
+
+## GNSS & Location Reliability
+- [ ] Configure `enableHighAccuracy: true` to ensure GNSS usage (when offline)
+- [ ] Handle "waiting for GPS" state when network location is unavailable
+
 ## Upgraded Share System
 - [ ] Add QR-based sharing for anything cross-device
-
-## Secure Invite / Accept System (No Server)
-- [ ] Use out-of-band sharing
-- [ ] Require user-entered shared passphrase
 
 ## Testing Checklist
 - [ ] Ensure WebRTC connection works over LTE/WiFi

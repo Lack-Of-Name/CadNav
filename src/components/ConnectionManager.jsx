@@ -1,31 +1,45 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useP2PStore } from '../hooks/useP2PStore';
 
 const QRScanner = ({ onScan, onClose }) => {
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      "reader",
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      /* verbose= */ false
-    );
-    
-    scanner.render((decodedText) => {
-        onScan(decodedText);
-        scanner.clear();
-    }, (error) => {
-        // ignore errors
-    });
+    const html5QrCode = new Html5Qrcode("reader");
+    let isMounted = true;
+
+    const startScanning = async () => {
+        try {
+            await html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    if (isMounted) {
+                        onScan(decodedText);
+                    }
+                },
+                (errorMessage) => {
+                    // ignore
+                }
+            );
+        } catch (err) {
+            console.error("Failed to start scanner", err);
+        }
+    };
+
+    startScanning();
 
     return () => {
-        scanner.clear().catch(error => console.error("Failed to clear scanner", error));
+        isMounted = false;
+        html5QrCode.stop().catch(err => console.warn("Failed to stop scanner", err)).finally(() => {
+            html5QrCode.clear();
+        });
     };
   }, [onScan]);
 
   return (
     <div className="fixed inset-0 z-[2000] bg-black/90 flex flex-col items-center justify-center p-4">
-        <div id="reader" className="w-full max-w-sm bg-white rounded-lg overflow-hidden"></div>
+        <div id="reader" className="w-full max-w-sm bg-black rounded-lg overflow-hidden"></div>
         <button onClick={onClose} className="mt-4 px-6 py-2 bg-slate-700 text-white rounded-full">Close Camera</button>
     </div>
   );
