@@ -106,7 +106,7 @@ export const useP2PStore = create((set, get) => ({
 
       try {
           set({ connectionStatus: 'connecting', roomId });
-          get().addLog(`Joining session: ${roomId}...`);
+          get().addLog(`Joining session: ${roomId}... (v1.1 - Relay Fix)`);
 
           const room = joinRoom({ appId: APP_ID, rtcConfig, relayUrls }, roomId);
           const myPeerId = room.selfId;
