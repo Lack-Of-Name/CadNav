@@ -5,7 +5,7 @@ import {
 } from 'lz-string';
 
 const SERVER_URL =
-  import.meta.env.VITE_SERVER_URL ?? //your server URL here
+  import.meta.env.VITE_SERVER_URL ?? 'https://navstore.alexwebserver.dpdns.org/' //your server URL here
   import.meta.env.VITE_MISSION_SERVER_URL ??
   'ws://localhost:4000';
 const RECONNECT_DELAY_MS = 3500;
