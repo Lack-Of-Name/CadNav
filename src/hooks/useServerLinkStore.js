@@ -4,10 +4,42 @@ import {
   decompressFromEncodedURIComponent
 } from 'lz-string';
 
+const normalizeWsUrl = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const hasScheme = /^[a-z]+:\/\//i.test(trimmed);
+  const candidate = hasScheme ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate, typeof window !== 'undefined' ? window.location.origin : undefined);
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    }
+    if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+      return null;
+    }
+    url.pathname = url.pathname || '/';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch (err) {
+    return null;
+  }
+};
+
+const defaultWsUrl = () => {
+  if (typeof window !== 'undefined') {
+    const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${scheme}://${window.location.host}`;
+  }
+  return 'ws://localhost:4000';
+};
+
 const SERVER_URL =
-  import.meta.env.VITE_SERVER_URL ??
-  import.meta.env.VITE_MISSION_SERVER_URL ??
-  'ws://localhost:4000';
+  normalizeWsUrl(import.meta.env.VITE_SERVER_URL) ??
+  normalizeWsUrl(import.meta.env.VITE_MISSION_SERVER_URL) ??
+  normalizeWsUrl(import.meta.env.VITE_BACKEND_URL) ??
+  defaultWsUrl();
 const RECONNECT_DELAY_MS = 3500;
 const MAX_RECONNECT_ATTEMPTS = 12;
 const MAX_RECONNECT_DELAY_MS = 30000;
