@@ -134,11 +134,14 @@ export const ConnectionManager = () => {
     joinSession(remoteInput);
   };
 
-  const handleScan = (decodedText) => {
+  const handleScan = useCallback(
+    (decodedText) => {
       setRemoteInput(decodedText);
       setShowScanner(false);
       joinSession(decodedText);
-  };
+    },
+    [joinSession]
+  );
 
   const handleSend = (e) => {
     e.preventDefault();

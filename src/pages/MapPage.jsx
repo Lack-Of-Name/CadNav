@@ -72,36 +72,53 @@ const MapPage = () => {
     startGeolocation
   } = useCompass(selectedPosition);
 
-  const sendLocation = useP2PStore(state => state.sendLocation);
-  const sendRoutes = useP2PStore(state => state.sendRoutes);
-  const connectionStatus = useP2PStore(state => state.connectionStatus);
-  const peers = useP2PStore(state => state.peers);
-  const lastSentRef = useRef(0);
+  const sendLocation = useP2PStore((state) => state.sendLocation);
+  const shareRoutes = useP2PStore((state) => state.shareRoutes);
+  const sendClientRoutes = useP2PStore((state) => state.sendClientRoutes);
+  const connectionStatus = useP2PStore((state) => state.connectionStatus);
+  const peers = useP2PStore((state) => state.peers);
+  const role = useP2PStore((state) => state.role);
+  const locationIntervalMs = useP2PStore((state) => state.locationIntervalMs ?? 10000);
+  const lastLocationSendRef = useRef(0);
+  const lastRoutesDigestRef = useRef('');
+  const hasRequestedLocationRef = useRef(false);
+
+  const resolvedRoutes = useMemo(() => {
+    return routes.map((route) => ({
+      ...route,
+      items: route.items.map((id) => checkpointMap[id]).filter(Boolean)
+    }));
+  }, [routes, checkpointMap]);
 
   useEffect(() => {
-    if (connectionStatus === 'connected' && geolocation) {
-      const now = Date.now();
-      if (now - lastSentRef.current > 10000) { // 10 seconds throttle
-        sendLocation(geolocation);
-        lastSentRef.current = now;
-      }
+    if (connectionStatus !== 'connected' || !geolocation || role !== 'client') {
+      return;
     }
-  }, [geolocation, connectionStatus, sendLocation]);
+    const now = Date.now();
+    const throttleMs = Math.max(5000, Number(locationIntervalMs) || 10000);
+    if (now - lastLocationSendRef.current < throttleMs) {
+      return;
+    }
+    sendLocation(geolocation);
+    lastLocationSendRef.current = now;
+  }, [geolocation, connectionStatus, sendLocation, role, locationIntervalMs]);
 
   useEffect(() => {
-    if (connectionStatus === 'connected') {
-      const resolvedRoutes = routes.map(route => ({
-          ...route,
-          items: route.items.map(id => checkpointMap[id]).filter(Boolean)
-      }));
- 
-      const routesString = JSON.stringify(resolvedRoutes);
-      if (lastSentRef.current !== routesString) {
-          sendRoutes(resolvedRoutes);
-          lastSentRef.current = routesString;
-      }
+    if (connectionStatus !== 'connected') {
+      lastRoutesDigestRef.current = '';
+      return;
     }
-  }, [connectionStatus, routes, checkpointMap, sendRoutes]);
+    const digest = JSON.stringify(resolvedRoutes);
+    if (digest === lastRoutesDigestRef.current) {
+      return;
+    }
+    if (role === 'host') {
+      shareRoutes(resolvedRoutes);
+    } else if (role === 'client') {
+      sendClientRoutes(resolvedRoutes);
+    }
+    lastRoutesDigestRef.current = digest;
+  }, [connectionStatus, resolvedRoutes, role, shareRoutes, sendClientRoutes]);
 
   const supplementaryTargets = useMemo(
     () =>
@@ -276,17 +293,14 @@ const MapPage = () => {
   }, []);
 
   useEffect(() => {
+    if (hasRequestedLocationRef.current) return;
+    hasRequestedLocationRef.current = true;
     handleEnableLocation();
   }, [handleEnableLocation]);
 
   useEffect(() => {
     latestGeolocationRef.current = geolocation;
   }, [geolocation]);
-
-  useEffect(() => {
-    if (locationEnabled) {
-    }
-  }, [baseLayer, locationEnabled, handleEnableLocation]);
 
   const handleToolbarThemeToggle = useCallback(() => {
     setToolbarTheme((current) => (current === 'light' ? 'dark' : 'light'));
