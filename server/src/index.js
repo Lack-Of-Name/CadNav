@@ -18,7 +18,7 @@ const MAX_ROUTES_PER_CLIENT = Number(process.env.MAX_CLIENT_ROUTES ?? 8);
 const MAX_ROUTE_POINTS = Number(process.env.MAX_ROUTE_POINTS ?? 80);
 const MAX_TRAFFIC_WINDOW_SECONDS = Math.max(60, Number(process.env.TRAFFIC_WINDOW_S ?? 900));
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 1000 * 60 * 60 * 6);
-const HOST_RESUME_GRACE_MS = Number(process.env.HOST_RESUME_GRACE_MS ?? 1000 * 60 * 3);
+const HOST_RESUME_GRACE_MS = Number(process.env.HOST_RESUME_GRACE_MS ?? 1000 * 60 * 15);
 
 const clampIntervalMs = (value) =>
   Math.min(MAX_UPDATE_INTERVAL_MS, Math.max(MIN_UPDATE_INTERVAL_MS, Math.round(value)));
@@ -643,6 +643,19 @@ const handleMessage = (socket, payload) => {
   broadcast(session, 'session:message', entry);
 };
 
+const handleHeartbeat = (socket) => {
+  const session = ensureSession(socket);
+  if (!session) {
+    send(socket, 'session:error', { message: 'Not joined to a session.' });
+    return;
+  }
+  session.lastActivity = Date.now();
+  if (socket.meta?.peer) {
+    socket.meta.peer.lastHeartbeatAt = session.lastActivity;
+  }
+  send(socket, 'session:heartbeat', { timestamp: session.lastActivity });
+};
+
 wss.on('connection', (socket) => {
   socket.isAlive = true;
   socket.meta = null;
@@ -682,6 +695,9 @@ wss.on('connection', (socket) => {
         break;
       case 'participant:message':
         handleMessage(socket, data.payload);
+        break;
+      case 'participant:heartbeat':
+        handleHeartbeat(socket);
         break;
       case 'host:state':
         handleHostState(socket, data.payload);

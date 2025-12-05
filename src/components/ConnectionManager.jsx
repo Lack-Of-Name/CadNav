@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useServerLinkStore } from '../hooks/useServerLinkStore';
@@ -60,7 +61,12 @@ const QRScanner = ({ onScan, onClose }) => {
     };
   }, [onScan, stopScanner]);
 
-  return (
+  const portalTarget = typeof document !== 'undefined' ? document.body : null;
+  if (!portalTarget) {
+    return null;
+  }
+
+  return createPortal(
     <div className="fixed inset-0 z-[2000] bg-black/90 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900/70 p-3 text-center text-sm text-slate-300">
         <div id="qr-reader" className="aspect-square w-full overflow-hidden rounded-xl bg-slate-950"></div>
@@ -75,7 +81,8 @@ const QRScanner = ({ onScan, onClose }) => {
       >
         Close Camera
       </button>
-    </div>
+    </div>,
+    portalTarget
   );
 };
 

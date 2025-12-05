@@ -5,11 +5,11 @@ import {
 } from 'lz-string';
 
 const SERVER_URL =
-  import.meta.env.VITE_SERVER_URL ?? 'https://navstore.alexwebserver.dpdns.org/' //your server URL here
+  import.meta.env.VITE_SERVER_URL ??
   import.meta.env.VITE_MISSION_SERVER_URL ??
   'ws://localhost:4000';
 const RECONNECT_DELAY_MS = 3500;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = 12;
 const MAX_RECONNECT_DELAY_MS = 30000;
 const RECONNECT_JITTER_MS = 800;
 const MIN_INTERVAL_SECONDS = 5;
@@ -17,6 +17,8 @@ const MAX_INTERVAL_SECONDS = 120;
 const DEFAULT_INTERVAL_MS = 10000;
 const HOST_DEFAULT_LABEL = 'HQ';
 const HOST_DEFAULT_COLOR = '#38bdf8';
+const HEARTBEAT_INTERVAL_MS = 20000;
+const HOST_SESSION_CACHE_KEY = 'p2p-host-session';
 
 const colorPalette = [
   '#ef4444',
@@ -48,6 +50,45 @@ const initialState = {
   selfLabel: '',
   resumeToken: '',
   hostOnline: true
+};
+
+const canUseStorage = () => typeof window !== 'undefined' && !!window.localStorage;
+
+const getCachedHostSession = () => {
+  if (!canUseStorage()) return null;
+  try {
+    const raw = window.localStorage.getItem(HOST_SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.sessionId === 'string' && typeof parsed?.resumeToken === 'string') {
+      return parsed;
+    }
+  } catch (err) {
+    // ignore cache errors
+  }
+  return null;
+};
+
+const persistHostSession = (sessionId, resumeToken) => {
+  if (!canUseStorage()) return;
+  if (!sessionId || !resumeToken) return;
+  try {
+    window.localStorage.setItem(
+      HOST_SESSION_CACHE_KEY,
+      JSON.stringify({ sessionId, resumeToken, updatedAt: Date.now() })
+    );
+  } catch (err) {
+    // ignore cache errors
+  }
+};
+
+const clearHostSessionCache = () => {
+  if (!canUseStorage()) return;
+  try {
+    window.localStorage.removeItem(HOST_SESSION_CACHE_KEY);
+  } catch (err) {
+    // ignore cache errors
+  }
 };
 
 const makePeerMap = (list = []) => {
@@ -114,6 +155,8 @@ const normalizePeerRoutes = (routes = []) => {
 export const useServerLinkStore = create((set, get) => {
   let reconnectTimer = null;
   let pendingRouteTimer = null;
+  let heartbeatTimer = null;
+  let pendingHostResume = false;
 
   const addLog = (message, type = 'info') => {
     set((state) => ({
@@ -126,6 +169,25 @@ export const useServerLinkStore = create((set, get) => {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+  };
+
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  };
+
+  const startHeartbeat = () => {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      const state = get();
+      if (state.connectionStatus !== 'connected') {
+        stopHeartbeat();
+        return;
+      }
+      sendPacket({ type: 'participant:heartbeat', payload: { ts: Date.now() } });
+    }, HEARTBEAT_INTERVAL_MS);
   };
 
   const cleanupSocket = () => {
@@ -146,6 +208,8 @@ export const useServerLinkStore = create((set, get) => {
 
   const resetState = () => {
     clearReconnectTimer();
+    stopHeartbeat();
+    pendingHostResume = false;
     if (pendingRouteTimer) {
       clearTimeout(pendingRouteTimer);
       pendingRouteTimer = null;
@@ -280,6 +344,7 @@ export const useServerLinkStore = create((set, get) => {
       }
       if (latest.role === 'host') {
         if (latest.sessionId && latest.resumeToken) {
+          pendingHostResume = true;
           openSocket({
             role: 'host',
             isReconnect: true,
@@ -353,6 +418,11 @@ export const useServerLinkStore = create((set, get) => {
         if (payload.state) {
           ingestStatePacket(payload.state);
         }
+        if (payload.role === 'host' && payload.sessionId && payload.resumeToken) {
+          persistHostSession(payload.sessionId, payload.resumeToken);
+        }
+        pendingHostResume = false;
+        startHeartbeat();
         break;
       }
       case 'session:peer-joined': {
@@ -432,6 +502,12 @@ export const useServerLinkStore = create((set, get) => {
         }
         break;
       }
+      case 'session:heartbeat': {
+        if (get().role === 'client' && !get().hostOnline) {
+          set({ hostOnline: true });
+        }
+        break;
+      }
       case 'session:message': {
         const { participantId, text } = payload ?? {};
         if (text) {
@@ -444,11 +520,18 @@ export const useServerLinkStore = create((set, get) => {
         ingestStatePacket(payload);
         break;
       case 'session:ended':
+        clearHostSessionCache();
         resetState();
         addLog('Host ended the session.', 'error');
         break;
       case 'session:error':
         addLog(payload?.message ?? 'Unknown server error', 'error');
+        if (pendingHostResume) {
+          pendingHostResume = false;
+          clearHostSessionCache();
+          addLog('Previous room unavailable. Starting a new session…', 'warn');
+          openSocket({ role: 'host' });
+        }
         break;
       default:
         break;
@@ -461,6 +544,13 @@ export const useServerLinkStore = create((set, get) => {
     if (role === 'client' && !sessionCode) {
       addLog('Session code required.', 'error');
       return;
+    }
+    if (role === 'host') {
+      if (resumeSessionId && resumeToken) {
+        pendingHostResume = true;
+      } else {
+        pendingHostResume = false;
+      }
     }
     const socket = new WebSocket(SERVER_URL);
     set((prev) => ({
@@ -543,7 +633,23 @@ export const useServerLinkStore = create((set, get) => {
   return {
     ...initialState,
     logs: [],
-    startHostSession: () => openSocket({ role: 'host' }),
+    startHostSession: () => {
+      const state = get();
+      if (state.connectionStatus === 'connecting' || state.connectionStatus === 'reconnecting') {
+        return;
+      }
+      const cached = getCachedHostSession();
+      if (cached?.sessionId && cached?.resumeToken) {
+        pendingHostResume = true;
+        openSocket({
+          role: 'host',
+          resumeSessionId: cached.sessionId,
+          resumeToken: cached.resumeToken
+        });
+      } else {
+        openSocket({ role: 'host' });
+      }
+    },
     joinSession: (code) => {
       const trimmed = (code || '').trim().toUpperCase();
       if (!trimmed) {
@@ -555,6 +661,7 @@ export const useServerLinkStore = create((set, get) => {
     disconnect: () => {
       if (get().role === 'host') {
         sendPacket({ type: 'host:shutdown' });
+        clearHostSessionCache();
       }
       set({ shouldReconnect: false });
       cleanupSocket();
