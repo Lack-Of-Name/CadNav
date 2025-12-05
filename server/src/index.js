@@ -18,6 +18,7 @@ const MAX_ROUTES_PER_CLIENT = Number(process.env.MAX_CLIENT_ROUTES ?? 8);
 const MAX_ROUTE_POINTS = Number(process.env.MAX_ROUTE_POINTS ?? 80);
 const MAX_TRAFFIC_WINDOW_SECONDS = Math.max(60, Number(process.env.TRAFFIC_WINDOW_S ?? 900));
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 1000 * 60 * 60 * 6);
+const HOST_RESUME_GRACE_MS = Number(process.env.HOST_RESUME_GRACE_MS ?? 1000 * 60 * 3);
 
 const clampIntervalMs = (value) =>
   Math.min(MAX_UPDATE_INTERVAL_MS, Math.max(MIN_UPDATE_INTERVAL_MS, Math.round(value)));
@@ -26,6 +27,7 @@ const CODE_CHARS = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 const generateSessionCode = customAlphabet(CODE_CHARS, SESSION_CODE_LENGTH);
 const generateLabel = customAlphabet(CODE_CHARS, 3);
 const generateSuffix = customAlphabet(CODE_CHARS, 2);
+const generateResumeToken = () => crypto.randomBytes(24).toString('hex');
 
 const colorPalette = [
   '#ef4444',
@@ -100,7 +102,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const send = (socket, type, payload = {}) => {
-  if (socket.readyState !== WebSocket.OPEN) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
     return;
   }
   const serialized = JSON.stringify({ type, payload });
@@ -177,7 +179,7 @@ const hashRoutes = (routes) => {
 };
 
 const broadcast = (session, type, payload, { excludeId = null } = {}) => {
-  if (session.host && session.host.participantId !== excludeId) {
+  if (session.host?.socket && session.host.participantId !== excludeId) {
     send(session.host.socket, type, payload);
   }
   session.clients.forEach((client) => {
@@ -187,7 +189,7 @@ const broadcast = (session, type, payload, { excludeId = null } = {}) => {
 };
 
 const sendToHost = (session, type, payload, { excludeId = null } = {}) => {
-  if (session.host && session.host.participantId !== excludeId) {
+  if (session.host?.socket && session.host.participantId !== excludeId) {
     send(session.host.socket, type, payload);
   }
 };
@@ -214,18 +216,45 @@ const attachSessionMeta = (socket, session, peer, role) => {
   };
 };
 
+const notifyClientsHostStatus = (session, online, reason = null) => {
+  sendToClients(session, 'session:host-status', {
+    online,
+    reason,
+    timestamp: Date.now()
+  });
+};
+
+const detachHost = (session, reason = 'host-disconnected') => {
+  if (!session.host) return;
+  session.host.socket = null;
+  session.hostDetachedAt = Date.now();
+  session.lastActivity = session.hostDetachedAt;
+  notifyClientsHostStatus(session, false, reason);
+};
+
+const terminateSession = (session, reason = 'host-ended') => {
+  sessions.delete(session.id);
+  broadcast(session, 'session:ended', { reason });
+  session.clients.forEach((client) => {
+    try {
+      client.socket.close(1012, reason);
+    } catch (err) {
+      // ignore
+    }
+  });
+  if (session.host?.socket) {
+    try {
+      session.host.socket.close(1001, reason);
+    } catch (err) {
+      // ignore
+    }
+  }
+  session.clients.clear();
+};
+
 const dropParticipant = (session, participantId) => {
   if (session.host && session.host.participantId === participantId) {
-    sessions.delete(session.id);
-    broadcast(session, 'session:ended', { reason: 'host-disconnected' }, { excludeId: participantId });
-    session.clients.forEach((client) => {
-      try {
-        client.socket.close(1012, 'Host disconnected');
-      } catch (err) {
-        // ignore
-      }
-    });
-    session.clients.clear();
+    detachHost(session);
     return;
   }
 
@@ -236,24 +265,15 @@ const dropParticipant = (session, participantId) => {
 };
 
 const pruneSessions = () => {
-  const cutoff = Date.now() - SESSION_TTL_MS;
-  sessions.forEach((session, id) => {
+  const now = Date.now();
+  const cutoff = now - SESSION_TTL_MS;
+  sessions.forEach((session) => {
+    if (!session.host?.socket && session.hostDetachedAt && now - session.hostDetachedAt > HOST_RESUME_GRACE_MS) {
+      terminateSession(session, 'host-timeout');
+      return;
+    }
     if (session.lastActivity < cutoff) {
-      if (session.host?.socket) {
-        try {
-          session.host.socket.close(1012, 'Session expired');
-        } catch (err) {
-          // ignore
-        }
-      }
-      session.clients.forEach((client) => {
-        try {
-          client.socket.close(1012, 'Session expired');
-        } catch (err) {
-          // ignore
-        }
-      });
-      sessions.delete(id);
+      terminateSession(session, 'session-expired');
     }
   });
 };
@@ -286,7 +306,8 @@ const handleHostInit = (socket) => {
     label: 'HQ',
     socket,
     location: null,
-    lastLocationAt: 0
+    lastLocationAt: 0,
+    resumeToken: generateResumeToken()
   };
 
   const session = {
@@ -298,7 +319,9 @@ const handleHostInit = (socket) => {
     stateHash: null,
     lastActivity: Date.now(),
     colorCursor: 0,
-    locationIntervalMs: DEFAULT_UPDATE_INTERVAL_MS
+    locationIntervalMs: DEFAULT_UPDATE_INTERVAL_MS,
+    hostResumeToken: hostPeer.resumeToken,
+    hostDetachedAt: null
   };
 
   sessions.set(sessionId, session);
@@ -309,7 +332,62 @@ const handleHostInit = (socket) => {
     participantId: hostPeer.participantId,
     peers: [],
     state: null,
-    intervalMs: session.locationIntervalMs
+    intervalMs: session.locationIntervalMs,
+    resumeToken: hostPeer.resumeToken
+  });
+};
+
+const handleHostResume = (socket, payload) => {
+  const rawSessionId = typeof payload?.sessionId === 'string' ? payload.sessionId.trim().toUpperCase() : '';
+  const resumeToken = typeof payload?.resumeToken === 'string' ? payload.resumeToken.trim() : '';
+  if (!rawSessionId || !resumeToken) {
+    send(socket, 'session:error', { message: 'Missing resume credentials.' });
+    return;
+  }
+
+  const session = sessions.get(rawSessionId);
+  if (!session) {
+    send(socket, 'session:error', { message: 'Session not found or expired.' });
+    return;
+  }
+  if (!session.host || session.hostResumeToken !== resumeToken) {
+    send(socket, 'session:error', { message: 'Resume token invalid.' });
+    return;
+  }
+  if (session.host.socket) {
+    send(socket, 'session:error', { message: 'Host already connected.' });
+    return;
+  }
+
+  const nextToken = generateResumeToken();
+  session.host.socket = socket;
+  session.host.resumeToken = nextToken;
+  session.hostResumeToken = nextToken;
+  session.hostDetachedAt = null;
+  session.lastActivity = Date.now();
+  attachSessionMeta(socket, session, session.host, 'host');
+  notifyClientsHostStatus(session, true, 'host-resumed');
+
+  const statePacket =
+    session.stateBlob && session.stateVersion
+      ? {
+          version: session.stateVersion,
+          data: session.stateBlob,
+          compressed: true,
+          hash: session.stateHash
+        }
+      : null;
+
+  const peers = Array.from(session.clients.values()).map((client) => buildPeerSnapshot(client, 'client')).filter(Boolean);
+
+  send(socket, 'session:ready', {
+    sessionId: session.id,
+    role: 'host',
+    participantId: session.host.participantId,
+    peers,
+    state: statePacket,
+    intervalMs: session.locationIntervalMs,
+    resumeToken: nextToken
   });
 };
 
@@ -509,6 +587,16 @@ const handleClientRoutes = (socket, payload) => {
   });
 };
 
+const handleHostShutdown = (socket) => {
+  const session = ensureSession(socket);
+  if (!session) return;
+  if (socket.meta?.role !== 'host') {
+    send(socket, 'session:error', { message: 'Only the host can end a session.' });
+    return;
+  }
+  terminateSession(session, 'host-ended');
+};
+
 const handleMessage = (socket, payload) => {
   const session = ensureSession(socket);
   if (!session) {
@@ -583,6 +671,9 @@ wss.on('connection', (socket) => {
       case 'host:init':
         handleHostInit(socket);
         break;
+      case 'host:resume':
+        handleHostResume(socket, data.payload);
+        break;
       case 'client:join':
         handleClientJoin(socket, data.payload);
         break;
@@ -597,6 +688,9 @@ wss.on('connection', (socket) => {
         break;
       case 'host:interval':
         handleHostInterval(socket, data.payload);
+        break;
+      case 'host:shutdown':
+        handleHostShutdown(socket);
         break;
       case 'client:routes':
         handleClientRoutes(socket, data.payload);

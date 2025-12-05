@@ -10,6 +10,8 @@ const SERVER_URL =
   'ws://localhost:4000';
 const RECONNECT_DELAY_MS = 3500;
 const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_DELAY_MS = 30000;
+const RECONNECT_JITTER_MS = 800;
 const MIN_INTERVAL_SECONDS = 5;
 const MAX_INTERVAL_SECONDS = 120;
 const DEFAULT_INTERVAL_MS = 10000;
@@ -43,7 +45,9 @@ const initialState = {
   pendingCode: '',
   lastStateVersion: 0,
   locationIntervalMs: DEFAULT_INTERVAL_MS,
-  selfLabel: ''
+  selfLabel: '',
+  resumeToken: '',
+  hostOnline: true
 };
 
 const makePeerMap = (list = []) => {
@@ -66,6 +70,12 @@ const timestampLabel = () =>
   new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(
     new Date()
   );
+
+const computeReconnectDelay = (attempt = 0) => {
+  const exponential = Math.min(RECONNECT_DELAY_MS * Math.pow(1.5, attempt), MAX_RECONNECT_DELAY_MS);
+  const jitter = Math.random() * RECONNECT_JITTER_MS;
+  return Math.round(exponential + jitter);
+};
 
 const normalizePeerRouteItem = (item, index) => {
   if (!item || typeof item !== 'object') return null;
@@ -103,6 +113,7 @@ const normalizePeerRoutes = (routes = []) => {
 
 export const useServerLinkStore = create((set, get) => {
   let reconnectTimer = null;
+  let pendingRouteTimer = null;
 
   const addLog = (message, type = 'info') => {
     set((state) => ({
@@ -135,6 +146,10 @@ export const useServerLinkStore = create((set, get) => {
 
   const resetState = () => {
     clearReconnectTimer();
+    if (pendingRouteTimer) {
+      clearTimeout(pendingRouteTimer);
+      pendingRouteTimer = null;
+    }
     set({ ...initialState });
   };
 
@@ -224,8 +239,14 @@ export const useServerLinkStore = create((set, get) => {
     }));
   };
 
-  const buildHandshakePayload = (role, sessionCode) => {
+  const buildHandshakePayload = (role, sessionCode, options = {}) => {
     if (role === 'host') {
+      if (options.resumeSessionId && options.resumeToken) {
+        return {
+          type: 'host:resume',
+          payload: { sessionId: options.resumeSessionId, resumeToken: options.resumeToken }
+        };
+      }
       return { type: 'host:init' };
     }
     return { type: 'client:join', payload: { sessionId: sessionCode } };
@@ -233,21 +254,50 @@ export const useServerLinkStore = create((set, get) => {
 
   const scheduleReconnect = () => {
     clearReconnectTimer();
-    const { shouldReconnect, reconnectAttempts, pendingCode } = get();
-    if (!shouldReconnect || !pendingCode) {
+    const state = get();
+    if (!state.shouldReconnect) {
       resetState();
       return;
     }
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    if (state.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       addLog('Gave up trying to reconnect.', 'error');
       set({ connectionStatus: 'disconnected', shouldReconnect: false });
       return;
     }
+
+    if (state.role !== 'host' && !state.pendingCode) {
+      resetState();
+      return;
+    }
+
+    const delay = computeReconnectDelay(state.reconnectAttempts);
     reconnectTimer = setTimeout(() => {
-      openSocket({ role: 'client', sessionCode: pendingCode, isReconnect: true });
-    }, RECONNECT_DELAY_MS);
-    set({ connectionStatus: 'reconnecting', reconnectAttempts: reconnectAttempts + 1 });
-    addLog('Attempting to relink…', 'info');
+      reconnectTimer = null;
+      const latest = get();
+      if (!latest.shouldReconnect) {
+        resetState();
+        return;
+      }
+      if (latest.role === 'host') {
+        if (latest.sessionId && latest.resumeToken) {
+          openSocket({
+            role: 'host',
+            isReconnect: true,
+            resumeSessionId: latest.sessionId,
+            resumeToken: latest.resumeToken
+          });
+        } else {
+          openSocket({ role: 'host', isReconnect: true });
+        }
+      } else if (latest.pendingCode) {
+        openSocket({ role: 'client', sessionCode: latest.pendingCode, isReconnect: true });
+      } else {
+        resetState();
+      }
+    }, delay);
+
+    set({ connectionStatus: 'reconnecting', reconnectAttempts: state.reconnectAttempts + 1 });
+    addLog(state.role === 'host' ? 'Rebinding HQ relay…' : 'Attempting to relink…', 'info');
   };
 
   const handleSocketMessage = (data) => {
@@ -286,11 +336,13 @@ export const useServerLinkStore = create((set, get) => {
           peers: mergedPeers,
           hostPeerId: role === 'host' ? participantId : hostEntry?.id ?? get().hostPeerId,
           reconnectAttempts: 0,
-          shouldReconnect: payload.role === 'client',
+          shouldReconnect: payload.role === 'client' || payload.role === 'host',
           logs: [],
           lastStateVersion: payload.state?.version ?? 0,
           locationIntervalMs: Number.isFinite(nextInterval) ? nextInterval : DEFAULT_INTERVAL_MS,
-          selfLabel: derivedSelfLabel
+          selfLabel: derivedSelfLabel,
+          resumeToken: typeof payload.resumeToken === 'string' ? payload.resumeToken : get().resumeToken,
+          hostOnline: true
         });
         addLog(
           payload.role === 'host'
@@ -369,6 +421,17 @@ export const useServerLinkStore = create((set, get) => {
         }
         break;
       }
+      case 'session:host-status': {
+        const nextOnline = Boolean(payload?.online);
+        const previous = get().hostOnline;
+        if (previous === nextOnline) break;
+        set({ hostOnline: nextOnline });
+        const reason = payload?.reason ? ` (${payload.reason})` : '';
+        if (get().role === 'client') {
+          addLog(nextOnline ? `HQ relay restored${reason}` : `HQ relay unreachable${reason}`, nextOnline ? 'success' : 'warn');
+        }
+        break;
+      }
       case 'session:message': {
         const { participantId, text } = payload ?? {};
         if (text) {
@@ -392,7 +455,7 @@ export const useServerLinkStore = create((set, get) => {
     }
   };
 
-  const openSocket = ({ role, sessionCode, isReconnect = false }) => {
+  const openSocket = ({ role, sessionCode, isReconnect = false, resumeSessionId, resumeToken }) => {
     cleanupSocket();
     clearReconnectTimer();
     if (role === 'client' && !sessionCode) {
@@ -400,16 +463,19 @@ export const useServerLinkStore = create((set, get) => {
       return;
     }
     const socket = new WebSocket(SERVER_URL);
-    set({
+    set((prev) => ({
       socket,
       connectionStatus: isReconnect ? 'reconnecting' : 'connecting',
       role,
-      pendingCode: role === 'client' ? sessionCode : '',
-      shouldReconnect: role === 'client'
-    });
+      pendingCode: role === 'client' ? sessionCode : prev.pendingCode,
+      shouldReconnect: role === 'client' || role === 'host'
+    }));
 
     socket.onopen = () => {
-      const handshake = buildHandshakePayload(role, sessionCode);
+      const handshake = buildHandshakePayload(role, sessionCode, {
+        resumeSessionId,
+        resumeToken
+      });
       socket.send(JSON.stringify(handshake));
     };
 
@@ -427,7 +493,7 @@ export const useServerLinkStore = create((set, get) => {
     };
 
     socket.onclose = () => {
-      if (role === 'client' && get().shouldReconnect) {
+      if (get().shouldReconnect) {
         scheduleReconnect();
       } else {
         resetState();
@@ -444,6 +510,36 @@ export const useServerLinkStore = create((set, get) => {
     return true;
   };
 
+  const pushRouteSnapshot = (snapshot, hash) => {
+    const sent = sendPacket({ type: 'client:routes', payload: { routes: snapshot } });
+    if (!sent) {
+      return false;
+    }
+    set({
+      lastClientRouteHash: hash,
+      lastClientRoutePushAt: Date.now(),
+      pendingRouteSnapshot: null,
+      pendingRouteHash: ''
+    });
+    addLog('Shared route snapshot with HQ', 'info');
+    return true;
+  };
+
+  const schedulePendingRouteFlush = () => {
+    if (pendingRouteTimer) {
+      clearTimeout(pendingRouteTimer);
+    }
+    const elapsed = Date.now() - get().lastClientRoutePushAt;
+    const delay = Math.max(CLIENT_ROUTE_PUSH_INTERVAL_MS - elapsed, 50);
+    pendingRouteTimer = setTimeout(() => {
+      pendingRouteTimer = null;
+      const { pendingRouteSnapshot, pendingRouteHash } = get();
+      if (pendingRouteSnapshot && pendingRouteHash) {
+        pushRouteSnapshot(pendingRouteSnapshot, pendingRouteHash);
+      }
+    }, delay);
+  };
+
   return {
     ...initialState,
     logs: [],
@@ -457,6 +553,9 @@ export const useServerLinkStore = create((set, get) => {
       openSocket({ role: 'client', sessionCode: trimmed });
     },
     disconnect: () => {
+      if (get().role === 'host') {
+        sendPacket({ type: 'host:shutdown' });
+      }
       set({ shouldReconnect: false });
       cleanupSocket();
       resetState();

@@ -92,7 +92,8 @@ export const ConnectionManager = () => {
     clearLogs,
     role,
     locationIntervalMs,
-    updateLocationInterval
+    updateLocationInterval,
+    hostOnline
   } = useServerLinkStore();
 
   const [remoteInput, setRemoteInput] = useState('');
@@ -177,6 +178,12 @@ export const ConnectionManager = () => {
                 )}
             </div>
         </div>
+
+        {!hostOnline && role === 'client' && connectionStatus === 'connected' && (
+          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            HQ link is offline. Your updates stay queued until the host reconnects.
+          </div>
+        )}
         
         {/* Peer List */}
         {connectedPeersCount > 0 && (

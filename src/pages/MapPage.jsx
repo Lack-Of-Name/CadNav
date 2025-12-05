@@ -5,7 +5,7 @@ import CheckpointList from '../components/CheckpointList.jsx';
 import GridTools from '../components/GridTools.jsx';
 import PlacementToolbar from '../components/PlacementToolbar.jsx';
 import { ConnectionManager } from '../components/ConnectionManager.jsx';
-import { useServerLinkStore } from '../hooks/useServerLinkStore';
+import { useP2PStore } from '../hooks/useP2PStore';
 import { useCheckpoints } from '../hooks/useCheckpoints.js';
 import {
   useCompass,
@@ -72,48 +72,36 @@ const MapPage = () => {
     startGeolocation
   } = useCompass(selectedPosition);
 
-  const {
-    sendLocation,
-    shareRoutes,
-    sendClientRoutes,
-    connectionStatus,
-    peers,
-    role,
-    locationIntervalMs
-  } = useServerLinkStore();
+  const sendLocation = useP2PStore(state => state.sendLocation);
+  const sendRoutes = useP2PStore(state => state.sendRoutes);
+  const connectionStatus = useP2PStore(state => state.connectionStatus);
+  const peers = useP2PStore(state => state.peers);
   const lastSentRef = useRef(0);
 
   useEffect(() => {
-    if (connectionStatus === 'connected' && role === 'client' && geolocation) {
+    if (connectionStatus === 'connected' && geolocation) {
       const now = Date.now();
-      const cadence = Math.max(locationIntervalMs ?? 10000, 5000);
-      if (now - lastSentRef.current > cadence - 50) {
+      if (now - lastSentRef.current > 10000) { // 10 seconds throttle
         sendLocation(geolocation);
         lastSentRef.current = now;
       }
     }
-  }, [geolocation, connectionStatus, role, sendLocation, locationIntervalMs]);
-
-  const resolvedRoutes = useMemo(
-    () =>
-      routes.map((route) => ({
-        ...route,
-        items: route.items.map((id) => checkpointMap[id]).filter(Boolean)
-      })),
-    [routes, checkpointMap]
-  );
+  }, [geolocation, connectionStatus, sendLocation]);
 
   useEffect(() => {
-    if (connectionStatus === 'connected' && role === 'host') {
-      shareRoutes(resolvedRoutes);
+    if (connectionStatus === 'connected') {
+      const resolvedRoutes = routes.map(route => ({
+          ...route,
+          items: route.items.map(id => checkpointMap[id]).filter(Boolean)
+      }));
+ 
+      const routesString = JSON.stringify(resolvedRoutes);
+      if (lastSentRef.current !== routesString) {
+          sendRoutes(resolvedRoutes);
+          lastSentRef.current = routesString;
+      }
     }
-  }, [connectionStatus, role, shareRoutes, resolvedRoutes]);
-
-  useEffect(() => {
-    if (connectionStatus === 'connected' && role === 'client') {
-      sendClientRoutes(resolvedRoutes);
-    }
-  }, [connectionStatus, role, resolvedRoutes, sendClientRoutes]);
+  }, [connectionStatus, routes, checkpointMap, sendRoutes]);
 
   const supplementaryTargets = useMemo(
     () =>
@@ -265,11 +253,9 @@ const MapPage = () => {
     [overlayHeight, handleOverlayResizeMove, handleOverlayResizeEnd]
   );
 
-  useEffect(() => {
-    return () => {
-      window.removeEventListener('pointermove', handleOverlayResizeMove);
-      window.removeEventListener('pointerup', handleOverlayResizeEnd);
-    };
+  useEffect(() => () => {
+    window.removeEventListener('pointermove', handleOverlayResizeMove);
+    window.removeEventListener('pointerup', handleOverlayResizeEnd);
   }, [handleOverlayResizeMove, handleOverlayResizeEnd]);
 
   const overlaySheetStyle = useMemo(
@@ -298,14 +284,7 @@ const MapPage = () => {
   }, [geolocation]);
 
   useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      return;
-    }
     if (locationEnabled) {
-      handleEnableLocation();
-    } else if (latestGeolocationRef.current) {
-      setLocationRequestToken((token) => token + 1);
     }
   }, [baseLayer, locationEnabled, handleEnableLocation]);
 
@@ -320,14 +299,9 @@ const MapPage = () => {
     [addCheckpoint]
   );
 
-  const checkpointResetKey = useMemo(
-    () => checkpoints.map((cp) => cp?.id ?? '').join('|'),
-    [checkpoints]
-  );
-
   useEffect(() => {
     setPreviewLocation(null);
-  }, [checkpointResetKey]);
+  }, [checkpoints]);
 
   return (
     <div className="relative viewport-safe bg-slate-950 text-slate-100">
@@ -452,7 +426,7 @@ const MapPage = () => {
         </div>
       )}
 
-      {!isPlacingMode && activeOverlay === 'server' && (
+      {!isPlacingMode && activeOverlay === 'p2p' && (
         <div
           className="pointer-events-auto overlay-sheet fixed inset-x-0 bottom-0 z-[1300] mx-auto w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900 p-3 shadow-2xl shadow-slate-950/80 md:left-auto md:right-6 md:top-6 md:max-w-md md:rounded-2xl"
           style={overlaySheetStyle}
@@ -460,7 +434,7 @@ const MapPage = () => {
           <div className="mb-3 flex justify-center">
             <button
               type="button"
-              data-overlay-id="server"
+              data-overlay-id="p2p"
               className="group flex h-12 w-full max-w-[220px] cursor-row-resize items-center justify-center rounded-full bg-slate-900 shadow-inner shadow-slate-950/40 ring-1 ring-slate-700/60 transition hover:ring-slate-500/80 active:bg-slate-800 touch-none"
               aria-label="Drag to resize or tap to close panel"
               onPointerDown={handleOverlayResizeStart}
@@ -469,8 +443,8 @@ const MapPage = () => {
             </button>
           </div>
           <div className="mb-2 text-left text-[11px]">
-            <p className="font-semibold uppercase tracking-wide text-slate-500">Server Session</p>
-            <p className="text-xs text-slate-400">Host rooms & share coordinates</p>
+            <p className="font-semibold uppercase tracking-wide text-slate-500">P2P Connection</p>
+            <p className="text-xs text-slate-400">Share location & routes</p>
           </div>
           <ConnectionManager />
         </div>
@@ -538,16 +512,16 @@ const MapPage = () => {
               <button
                 type="button"
                 className={`flex items-center justify-between rounded-lg border px-3 py-2 font-semibold transition ${
-                  activeOverlay === 'server'
+                  activeOverlay === 'p2p'
                     ? 'border-sky-500 bg-sky-500 text-slate-950'
                     : 'border-slate-700 bg-slate-900 hover:border-sky-500 hover:text-sky-100'
                 }`}
-                onClick={() => openOverlay('server')}
+                onClick={() => openOverlay('p2p')}
               >
-                Server Session
+                P2P Share
                 <span
                   className={`text-[10px] ${
-                    activeOverlay === 'server' ? 'text-slate-800' : 'text-slate-400'
+                    activeOverlay === 'p2p' ? 'text-slate-800' : 'text-slate-400'
                   }`}
                 >
                   Connect
