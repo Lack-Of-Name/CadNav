@@ -49,7 +49,6 @@ const MAX_INTERVAL_SECONDS = 120;
 const DEFAULT_INTERVAL_MS = 10000;
 const HOST_DEFAULT_LABEL = 'HQ';
 const HOST_DEFAULT_COLOR = '#38bdf8';
-const HEARTBEAT_INTERVAL_MS = 20000;
 const HOST_SESSION_CACHE_KEY = 'p2p-host-session';
 
 const colorPalette = [
@@ -127,13 +126,18 @@ const makePeerMap = (list = []) => {
   const output = {};
   list.forEach((peer) => {
     if (!peer?.id) return;
+    const updatedAt = typeof peer.updatedAt === 'number' ? peer.updatedAt : null;
+    const lastSeenAt = typeof peer.lastSeenAt === 'number' ? peer.lastSeenAt : updatedAt;
     output[peer.id] = {
       id: peer.id,
       color: peer.color ?? colorPalette[Math.floor(Math.random() * colorPalette.length)],
       label: peer.label ?? peer.id,
       role: peer.role ?? 'client',
       location: peer.location ?? null,
-      routes: peer.routes ?? null
+      routes: peer.routes ?? null,
+      updatedAt,
+      lastSeenAt: lastSeenAt ?? null,
+      isOnline: typeof peer.isOnline === 'boolean' ? peer.isOnline : true
     };
   });
   return output;
@@ -187,7 +191,6 @@ const normalizePeerRoutes = (routes = []) => {
 export const useServerLinkStore = create((set, get) => {
   let reconnectTimer = null;
   let pendingRouteTimer = null;
-  let heartbeatTimer = null;
   let pendingHostResume = false;
 
   const addLog = (message, type = 'info') => {
@@ -201,25 +204,6 @@ export const useServerLinkStore = create((set, get) => {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
-  };
-
-  const stopHeartbeat = () => {
-    if (heartbeatTimer) {
-      clearInterval(heartbeatTimer);
-      heartbeatTimer = null;
-    }
-  };
-
-  const startHeartbeat = () => {
-    stopHeartbeat();
-    heartbeatTimer = setInterval(() => {
-      const state = get();
-      if (state.connectionStatus !== 'connected') {
-        stopHeartbeat();
-        return;
-      }
-      sendPacket({ type: 'participant:heartbeat', payload: { ts: Date.now() } });
-    }, HEARTBEAT_INTERVAL_MS);
   };
 
   const cleanupSocket = () => {
@@ -240,7 +224,6 @@ export const useServerLinkStore = create((set, get) => {
 
   const resetState = () => {
     clearReconnectTimer();
-    stopHeartbeat();
     pendingHostResume = false;
     if (pendingRouteTimer) {
       clearTimeout(pendingRouteTimer);
@@ -327,7 +310,9 @@ export const useServerLinkStore = create((set, get) => {
           location: state.peers[hostPeerId]?.location ?? null,
           routes: parsed.routes ?? null,
           snapshot: parsed,
-          updatedAt: Date.now()
+          updatedAt: Date.now(),
+          lastSeenAt: Date.now(),
+          isOnline: state.hostOnline
         }
       },
       hostPeerId,
@@ -345,7 +330,17 @@ export const useServerLinkStore = create((set, get) => {
       }
       return { type: 'host:init' };
     }
-    return { type: 'client:join', payload: { sessionId: sessionCode } };
+    const payload = { sessionId: sessionCode };
+    if (typeof options.participantId === 'string' && options.participantId.trim().length > 0) {
+      payload.participantId = options.participantId.trim();
+    }
+    if (
+      typeof options.participantResumeToken === 'string' &&
+      options.participantResumeToken.trim().length > 0
+    ) {
+      payload.resumeToken = options.participantResumeToken.trim();
+    }
+    return { type: 'client:join', payload };
   };
 
   const scheduleReconnect = () => {
@@ -387,7 +382,13 @@ export const useServerLinkStore = create((set, get) => {
           openSocket({ role: 'host', isReconnect: true });
         }
       } else if (latest.pendingCode) {
-        openSocket({ role: 'client', sessionCode: latest.pendingCode, isReconnect: true });
+        openSocket({
+          role: 'client',
+          sessionCode: latest.pendingCode,
+          isReconnect: true,
+          participantId: latest.participantId,
+          participantResumeToken: latest.resumeToken
+        });
       } else {
         resetState();
       }
@@ -420,7 +421,10 @@ export const useServerLinkStore = create((set, get) => {
           label: derivedSelfLabel,
           role,
           location: existingSelf?.location ?? null,
-          routes: existingSelf?.routes ?? null
+          routes: existingSelf?.routes ?? null,
+          updatedAt: existingSelf?.updatedAt ?? null,
+          lastSeenAt: existingSelf?.lastSeenAt ?? Date.now(),
+          isOnline: true
         };
 
         const mergedPeers = { ...peerMap, [participantId]: selfEntry };
@@ -454,7 +458,6 @@ export const useServerLinkStore = create((set, get) => {
           persistHostSession(payload.sessionId, payload.resumeToken);
         }
         pendingHostResume = false;
-        startHeartbeat();
         break;
       }
       case 'session:peer-joined': {
@@ -469,13 +472,40 @@ export const useServerLinkStore = create((set, get) => {
         if (payload?.participantId) {
           const displayName = formatParticipantName(payload.participantId);
           removePeer(payload.participantId);
-          addLog(`${displayName} dropped`, 'warn');
+          const reason = payload?.reason ?? 'client-left';
+          const summary = reason === 'client-left' ? 'left the room' : `removed (${reason})`;
+          addLog(`${displayName} ${summary}`, reason === 'client-left' ? 'info' : 'warn');
         }
+        break;
+      }
+      case 'session:peer-status': {
+        const { participantId, isOnline, updatedAt, lastSeenAt } = payload ?? {};
+        if (!participantId) break;
+        set((state) => {
+          const existing = state.peers[participantId] ?? {
+            id: participantId,
+            color: colorPalette[Math.floor(Math.random() * colorPalette.length)],
+            label: participantId,
+            role: 'client'
+          };
+          return {
+            peers: {
+              ...state.peers,
+              [participantId]: {
+                ...existing,
+                isOnline: typeof isOnline === 'boolean' ? isOnline : existing.isOnline ?? true,
+                updatedAt: typeof updatedAt === 'number' ? updatedAt : existing.updatedAt ?? null,
+                lastSeenAt: typeof lastSeenAt === 'number' ? lastSeenAt : existing.lastSeenAt ?? Date.now()
+              }
+            }
+          };
+        });
         break;
       }
       case 'session:location': {
         const { participantId, location } = payload ?? {};
         if (!participantId || !location) return;
+        const updatedAt = typeof payload?.updatedAt === 'number' ? payload.updatedAt : Date.now();
         set((state) => ({
           peers: {
             ...state.peers,
@@ -485,7 +515,10 @@ export const useServerLinkStore = create((set, get) => {
                 color: colorPalette[Math.floor(Math.random() * colorPalette.length)],
                 label: participantId
               }),
-              location
+              location,
+              updatedAt,
+              lastSeenAt: updatedAt,
+              isOnline: true
             }
           }
         }));
@@ -495,6 +528,7 @@ export const useServerLinkStore = create((set, get) => {
         const { participantId, routes } = payload ?? {};
         if (!participantId) break;
         const normalizedRoutes = normalizePeerRoutes(routes);
+        const updatedAt = typeof payload?.updatedAt === 'number' ? payload.updatedAt : Date.now();
         set((state) => ({
           peers: {
             ...state.peers,
@@ -504,7 +538,10 @@ export const useServerLinkStore = create((set, get) => {
                 color: colorPalette[Math.floor(Math.random() * colorPalette.length)],
                 label: participantId
               }),
-              routes: normalizedRoutes
+              routes: normalizedRoutes,
+              updatedAt,
+              lastSeenAt: updatedAt,
+              isOnline: true
             }
           }
         }));
@@ -527,16 +564,25 @@ export const useServerLinkStore = create((set, get) => {
         const nextOnline = Boolean(payload?.online);
         const previous = get().hostOnline;
         if (previous === nextOnline) break;
-        set({ hostOnline: nextOnline });
+        set((state) => {
+          const hostPeerId = state.hostPeerId;
+          if (hostPeerId && state.peers[hostPeerId]) {
+            return {
+              hostOnline: nextOnline,
+              peers: {
+                ...state.peers,
+                [hostPeerId]: {
+                  ...state.peers[hostPeerId],
+                  isOnline: nextOnline
+                }
+              }
+            };
+          }
+          return { hostOnline: nextOnline };
+        });
         const reason = payload?.reason ? ` (${payload.reason})` : '';
         if (get().role === 'client') {
           addLog(nextOnline ? `HQ relay restored${reason}` : `HQ relay unreachable${reason}`, nextOnline ? 'success' : 'warn');
-        }
-        break;
-      }
-      case 'session:heartbeat': {
-        if (get().role === 'client' && !get().hostOnline) {
-          set({ hostOnline: true });
         }
         break;
       }
@@ -570,7 +616,15 @@ export const useServerLinkStore = create((set, get) => {
     }
   };
 
-  const openSocket = ({ role, sessionCode, isReconnect = false, resumeSessionId, resumeToken }) => {
+  const openSocket = ({
+    role,
+    sessionCode,
+    isReconnect = false,
+    resumeSessionId,
+    resumeToken,
+    participantId,
+    participantResumeToken
+  }) => {
     cleanupSocket();
     clearReconnectTimer();
     if (role === 'client' && !sessionCode) {
@@ -584,6 +638,19 @@ export const useServerLinkStore = create((set, get) => {
         pendingHostResume = false;
       }
     }
+    const stateBefore = get();
+    const resolvedParticipantId =
+      typeof participantId === 'string' && participantId.trim().length > 0
+        ? participantId.trim()
+        : role === 'client' && stateBefore.participantId
+          ? stateBefore.participantId
+          : '';
+    const resolvedParticipantToken =
+      typeof participantResumeToken === 'string' && participantResumeToken.trim().length > 0
+        ? participantResumeToken.trim()
+        : role === 'client' && stateBefore.resumeToken
+          ? stateBefore.resumeToken
+          : '';
     const socket = new WebSocket(SERVER_URL);
     set((prev) => ({
       socket,
@@ -596,7 +663,9 @@ export const useServerLinkStore = create((set, get) => {
     socket.onopen = () => {
       const handshake = buildHandshakePayload(role, sessionCode, {
         resumeSessionId,
-        resumeToken
+        resumeToken,
+        participantId: resolvedParticipantId,
+        participantResumeToken: resolvedParticipantToken
       });
       socket.send(JSON.stringify(handshake));
     };
@@ -694,6 +763,8 @@ export const useServerLinkStore = create((set, get) => {
       if (get().role === 'host') {
         sendPacket({ type: 'host:shutdown' });
         clearHostSessionCache();
+      } else if (get().role === 'client') {
+        sendPacket({ type: 'participant:leave' });
       }
       set({ shouldReconnect: false });
       cleanupSocket();

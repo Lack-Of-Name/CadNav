@@ -17,8 +17,8 @@ const DEFAULT_UPDATE_INTERVAL_MS = Math.min(
 const MAX_ROUTES_PER_CLIENT = Number(process.env.MAX_CLIENT_ROUTES ?? 8);
 const MAX_ROUTE_POINTS = Number(process.env.MAX_ROUTE_POINTS ?? 80);
 const MAX_TRAFFIC_WINDOW_SECONDS = Math.max(60, Number(process.env.TRAFFIC_WINDOW_S ?? 900));
-const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 1000 * 60 * 60 * 6);
-const HOST_RESUME_GRACE_MS = Number(process.env.HOST_RESUME_GRACE_MS ?? 1000 * 60 * 15);
+const SESSION_MAX_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 1000 * 60 * 60 * 6);
+const SESSION_IDLE_TIMEOUT_MS = Number(process.env.SESSION_IDLE_TIMEOUT_MS ?? 1000 * 60 * 2);
 
 const clampIntervalMs = (value) =>
   Math.min(MAX_UPDATE_INTERVAL_MS, Math.max(MIN_UPDATE_INTERVAL_MS, Math.round(value)));
@@ -112,13 +112,17 @@ const send = (socket, type, payload = {}) => {
 
 const buildPeerSnapshot = (peer, role) => {
   if (!peer) return null;
+  const updatedAt = peer.lastUpdateAt ?? peer.lastLocationAt ?? peer.lastRoutesAt ?? null;
   return {
     id: peer.participantId,
     color: peer.color,
     label: peer.label,
     role,
     location: peer.location ?? null,
-    routes: peer.routes ?? null
+    routes: peer.routes ?? null,
+    updatedAt,
+    isOnline: Boolean(peer.socket),
+    lastSeenAt: peer.lastContactAt ?? updatedAt ?? null
   };
 };
 
@@ -224,11 +228,23 @@ const notifyClientsHostStatus = (session, online, reason = null) => {
   });
 };
 
+const emitPeerStatus = (session, peer, { isOnline, reason = null } = {}) => {
+  if (!peer) return;
+  sendToHost(session, 'session:peer-status', {
+    participantId: peer.participantId,
+    isOnline: Boolean(isOnline),
+    updatedAt: peer.lastUpdateAt ?? peer.lastLocationAt ?? peer.lastRoutesAt ?? null,
+    lastSeenAt: peer.lastContactAt ?? null,
+    reason,
+    timestamp: Date.now()
+  });
+};
+
 const detachHost = (session, reason = 'host-disconnected') => {
   if (!session.host) return;
   session.host.socket = null;
-  session.hostDetachedAt = Date.now();
-  session.lastActivity = session.hostDetachedAt;
+  session.host.lastDisconnectAt = Date.now();
+  session.lastActivity = session.host.lastDisconnectAt;
   notifyClientsHostStatus(session, false, reason);
 };
 
@@ -236,6 +252,7 @@ const terminateSession = (session, reason = 'host-ended') => {
   sessions.delete(session.id);
   broadcast(session, 'session:ended', { reason });
   session.clients.forEach((client) => {
+    if (!client.socket) return;
     try {
       client.socket.close(1012, reason);
     } catch (err) {
@@ -252,27 +269,34 @@ const terminateSession = (session, reason = 'host-ended') => {
   session.clients.clear();
 };
 
-const dropParticipant = (session, participantId) => {
-  if (session.host && session.host.participantId === participantId) {
-    detachHost(session);
-    return;
-  }
+const markClientOffline = (session, participantId, reason = 'client-disconnected') => {
+  const peer = session.clients.get(participantId);
+  if (!peer || !peer.socket) return;
+  peer.socket = null;
+  peer.lastDisconnectAt = Date.now();
+  peer.lastContactAt = peer.lastContactAt ?? peer.lastDisconnectAt;
+  emitPeerStatus(session, peer, { isOnline: false, reason });
+};
 
-  if (session.clients.has(participantId)) {
-    session.clients.delete(participantId);
-    sendToHost(session, 'session:peer-left', { participantId });
-  }
+const removeClient = (session, participantId, reason = 'client-left') => {
+  const peer = session.clients.get(participantId);
+  if (!peer) return;
+  session.clients.delete(participantId);
+  sendToHost(session, 'session:peer-left', {
+    participantId,
+    reason,
+    timestamp: Date.now()
+  });
 };
 
 const pruneSessions = () => {
   const now = Date.now();
-  const cutoff = now - SESSION_TTL_MS;
   sessions.forEach((session) => {
-    if (!session.host?.socket && session.hostDetachedAt && now - session.hostDetachedAt > HOST_RESUME_GRACE_MS) {
-      terminateSession(session, 'host-timeout');
+    if (session.lastActivity && now - session.lastActivity > SESSION_IDLE_TIMEOUT_MS) {
+      terminateSession(session, 'session-idle');
       return;
     }
-    if (session.lastActivity < cutoff) {
+    if (session.createdAt && now - session.createdAt > SESSION_MAX_TTL_MS) {
       terminateSession(session, 'session-expired');
     }
   });
@@ -317,11 +341,11 @@ const handleHostInit = (socket) => {
     stateVersion: 0,
     stateBlob: null,
     stateHash: null,
+    createdAt: Date.now(),
     lastActivity: Date.now(),
     colorCursor: 0,
     locationIntervalMs: DEFAULT_UPDATE_INTERVAL_MS,
-    hostResumeToken: hostPeer.resumeToken,
-    hostDetachedAt: null
+    hostResumeToken: hostPeer.resumeToken
   };
 
   sessions.set(sessionId, session);
@@ -363,7 +387,6 @@ const handleHostResume = (socket, payload) => {
   session.host.socket = socket;
   session.host.resumeToken = nextToken;
   session.hostResumeToken = nextToken;
-  session.hostDetachedAt = null;
   session.lastActivity = Date.now();
   attachSessionMeta(socket, session, session.host, 'host');
   notifyClientsHostStatus(session, true, 'host-resumed');
@@ -409,6 +432,34 @@ const handleClientJoin = (socket, payload) => {
     return;
   }
 
+  const resumeParticipantId = typeof payload?.participantId === 'string' ? payload.participantId.trim() : '';
+  const resumeToken = typeof payload?.resumeToken === 'string' ? payload.resumeToken.trim() : '';
+  const now = Date.now();
+
+  if (resumeParticipantId && resumeToken) {
+    const existingPeer = session.clients.get(resumeParticipantId);
+    if (existingPeer && existingPeer.resumeToken === resumeToken) {
+      existingPeer.socket = socket;
+      existingPeer.resumeToken = generateResumeToken();
+      existingPeer.lastContactAt = now;
+      attachSessionMeta(socket, session, existingPeer, 'client');
+      session.lastActivity = now;
+
+      send(socket, 'session:ready', {
+        sessionId: session.id,
+        role: 'client',
+        participantId: existingPeer.participantId,
+        peers: [],
+        state: null,
+        intervalMs: session.locationIntervalMs,
+        resumeToken: existingPeer.resumeToken
+      });
+
+      emitPeerStatus(session, existingPeer, { isOnline: true, reason: 'client-resumed' });
+      return;
+    }
+  }
+
   const color = colorPalette[session.colorCursor % colorPalette.length];
   session.colorCursor += 1;
 
@@ -421,11 +472,15 @@ const handleClientJoin = (socket, payload) => {
     lastLocationAt: 0,
     routes: null,
     lastRoutesAt: 0,
-    routesHash: null
+    routesHash: null,
+    resumeToken: generateResumeToken(),
+    lastContactAt: now,
+    lastUpdateAt: null,
+    joinedAt: now
   };
 
   session.clients.set(clientPeer.participantId, clientPeer);
-  session.lastActivity = Date.now();
+  session.lastActivity = now;
   attachSessionMeta(socket, session, clientPeer, 'client');
 
   send(socket, 'session:ready', {
@@ -434,7 +489,8 @@ const handleClientJoin = (socket, payload) => {
     participantId: clientPeer.participantId,
     peers: [],
     state: null,
-    intervalMs: session.locationIntervalMs
+    intervalMs: session.locationIntervalMs,
+    resumeToken: clientPeer.resumeToken
   });
 
   sendToHost(session, 'session:peer-joined', { participant: buildPeerSnapshot(clientPeer, 'client') });
@@ -466,13 +522,16 @@ const handleLocation = (socket, payload) => {
 
   peer.location = location;
   peer.lastLocationAt = now;
+  peer.lastUpdateAt = now;
+  peer.lastContactAt = now;
   session.lastActivity = now;
 
   if (socket.meta.role === 'client') {
     sendToHost(session, 'session:location', {
       participantId: peer.participantId,
       location,
-      role: socket.meta.role
+      role: socket.meta.role,
+      updatedAt: now
     });
   }
 };
@@ -579,11 +638,14 @@ const handleClientRoutes = (socket, payload) => {
   peer.routes = sanitized.length > 0 ? sanitized : null;
   peer.routesHash = hash;
   peer.lastRoutesAt = now;
+  peer.lastUpdateAt = now;
+  peer.lastContactAt = now;
   session.lastActivity = now;
 
   sendToHost(session, 'session:peer-routes', {
     participantId: peer.participantId,
-    routes: peer.routes ?? []
+    routes: peer.routes ?? [],
+    updatedAt: now
   });
 };
 
@@ -608,6 +670,10 @@ const handleMessage = (socket, payload) => {
 
   const peer = socket.meta?.peer;
   if (!peer) return;
+
+  const now = Date.now();
+  session.lastActivity = now;
+  peer.lastContactAt = now;
 
   if (text.startsWith('/data')) {
     const segments = text.split(/\s+/);
@@ -637,23 +703,21 @@ const handleMessage = (socket, payload) => {
     participantId: peer.participantId,
     text,
     role: socket.meta.role,
-    timestamp: Date.now()
+    timestamp: now
   };
 
   broadcast(session, 'session:message', entry);
 };
 
-const handleHeartbeat = (socket) => {
+const handleParticipantLeave = (socket) => {
   const session = ensureSession(socket);
   if (!session) {
-    send(socket, 'session:error', { message: 'Not joined to a session.' });
     return;
   }
+  const peer = socket.meta?.peer;
+  if (!peer) return;
+  removeClient(session, peer.participantId, 'client-left');
   session.lastActivity = Date.now();
-  if (socket.meta?.peer) {
-    socket.meta.peer.lastHeartbeatAt = session.lastActivity;
-  }
-  send(socket, 'session:heartbeat', { timestamp: session.lastActivity });
 };
 
 wss.on('connection', (socket) => {
@@ -696,8 +760,8 @@ wss.on('connection', (socket) => {
       case 'participant:message':
         handleMessage(socket, data.payload);
         break;
-      case 'participant:heartbeat':
-        handleHeartbeat(socket);
+      case 'participant:leave':
+        handleParticipantLeave(socket);
         break;
       case 'host:state':
         handleHostState(socket, data.payload);
@@ -721,7 +785,11 @@ wss.on('connection', (socket) => {
     if (!session) return;
     const participantId = socket.meta?.participantId;
     if (!participantId) return;
-    dropParticipant(session, participantId);
+    if (socket.meta?.role === 'host') {
+      detachHost(session);
+    } else {
+      markClientOffline(session, participantId);
+    }
   });
 
   socket.on('error', (err) => {
@@ -730,7 +798,7 @@ wss.on('connection', (socket) => {
 });
 
 setInterval(heartbeat, 30000);
-setInterval(pruneSessions, Math.max(SESSION_TTL_MS / 2, 60000));
+setInterval(pruneSessions, Math.max(SESSION_IDLE_TIMEOUT_MS / 2, 60000));
 
 server.listen(PORT, () => {
   console.log(`Server relay listening on http://0.0.0.0:${PORT}`);

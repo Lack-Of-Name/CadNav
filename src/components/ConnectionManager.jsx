@@ -100,7 +100,8 @@ export const ConnectionManager = () => {
     role,
     locationIntervalMs,
     updateLocationInterval,
-    hostOnline
+    hostOnline,
+    participantId
   } = useServerLinkStore();
 
   const [remoteInput, setRemoteInput] = useState('');
@@ -108,6 +109,7 @@ export const ConnectionManager = () => {
   const [activeTab, setActiveTab] = useState('receiver'); // 'receiver' or 'sender'
   const [showScanner, setShowScanner] = useState(false);
   const [intervalSeconds, setIntervalSeconds] = useState(() => Math.round((locationIntervalMs ?? 10000) / 1000));
+  const [nowTick, setNowTick] = useState(Date.now());
   const logsEndRef = useRef(null);
 
   useEffect(() => {
@@ -125,6 +127,11 @@ export const ConnectionManager = () => {
   useEffect(() => {
     setIntervalSeconds(Math.round((locationIntervalMs ?? 10000) / 1000));
   }, [locationIntervalMs]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const copyToClipboard = () => {
     if (!sessionId) return;
@@ -157,8 +164,28 @@ export const ConnectionManager = () => {
       setMessageInput('');
     }
   };
-
-  const connectedPeersCount = Object.keys(peers).length;
+  const peerValues = Object.values(peers ?? {});
+  const remotePeers = peerValues.filter((peer) => peer.id !== participantId);
+  const remotePeersSorted = [...remotePeers].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const allPeersSorted = [...peerValues].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const connectedPeersCount = remotePeers.filter((peer) => peer.isOnline !== false).length;
+  const formatLastUpdated = (peer) => {
+    if (!peer?.updatedAt) {
+      return 'No updates yet';
+    }
+    const deltaSeconds = Math.max(0, Math.floor((nowTick - peer.updatedAt) / 1000));
+    if (deltaSeconds < 60) {
+      return `Last updated ${deltaSeconds}s ago`;
+    }
+    const minutes = Math.floor(deltaSeconds / 60);
+    const seconds = deltaSeconds % 60;
+    if (minutes < 60) {
+      return `Last updated ${minutes}m${seconds ? ` ${seconds}s` : ''} ago`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return `Last updated ${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ''} ago`;
+  };
   const statusBadgeClass =
     connectionStatus === 'connected'
       ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
@@ -179,7 +206,7 @@ export const ConnectionManager = () => {
                 Status: {connectionStatus}
                 </span>
                 {connectionStatus === 'connected' && (
-                  <span className="text-xs text-slate-400">({connectedPeersCount} peer{connectedPeersCount !== 1 ? 's' : ''})</span>
+                  <span className="text-xs text-slate-400">({connectedPeersCount} active)</span>
                 )}
             </div>
             <div className="flex items-center gap-2">
@@ -196,15 +223,44 @@ export const ConnectionManager = () => {
         )}
         
         {/* Peer List */}
-        {connectedPeersCount > 0 && (
-            <div className="flex flex-wrap gap-2 mt-1">
-                {Object.values(peers).map(peer => (
-                    <div key={peer.id} className="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded border border-slate-700 text-xs">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: peer.color || '#ccc' }}></div>
-                        <span className="text-slate-300" title={peer.id}>{peer.label ?? peer.id.substring(0, 6)}</span>
+        {remotePeersSorted.length > 0 && (
+          role === 'host' ? (
+            <div className="mt-2 space-y-2">
+              {remotePeersSorted.map((peer) => (
+                <div key={peer.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: peer.color || '#ccc' }}></div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-100" title={peer.id}>{peer.label ?? peer.id}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                          {peer.isOnline === false ? 'Offline' : 'Online'}
+                        </p>
+                      </div>
                     </div>
-                ))}
+                    <p className="text-xs text-slate-400">{formatLastUpdated(peer)}</p>
+                  </div>
+                </div>
+              ))}
             </div>
+          ) : (
+            <div className="flex flex-wrap gap-2 mt-1">
+              {allPeersSorted.map((peer) => (
+                <div
+                  key={peer.id}
+                  className={`flex items-center gap-1 bg-slate-800 px-2 py-1 rounded border text-xs ${
+                    peer.isOnline === false ? 'border-slate-800 text-slate-500 opacity-60' : 'border-slate-700 text-slate-300'
+                  }`}
+                  title={formatLastUpdated(peer)}
+                >
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: peer.color || '#ccc' }}></div>
+                  <span className="text-slate-300" title={peer.id}>
+                    {peer.label ?? peer.id.substring(0, 6)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
         )}
       </div>
 

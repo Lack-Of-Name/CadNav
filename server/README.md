@@ -8,7 +8,7 @@ A lightweight relay that replaces the previous peer-to-peer experiment with a co
 - **Host-authoritative state** – only the host publishes the canonical route snapshot, which is cached server-side for its own auditing.
 - **One-way uplink** – clients never receive other participants’ data; they simply transmit their own GPS/route information to HQ.
 - **Delta-friendly caching** – route blobs are compressed once, hashed, and only re-cached if the payload changed.
-- **Low-data tuning** – location updates are server-throttled per session (default 10 s, clamped between 5 s and 120 s) and stale participants are culled via heartbeats.
+- **Low-data tuning** – location cadence is clamped per session (default 10 s, 5–120 s bounds) and idle peers/rooms expire automatically without per-client heartbeats.
 - **Dropout recovery** – each socket tracks its last session + role so the client can auto-retry without asking the user for the code again.
 
 ## Message Flow
@@ -43,7 +43,8 @@ Environment knobs (set via `.env` or shell vars):
 - `ROUTE_UPDATE_INTERVAL_MS` – minimum ms between accepted route uploads per client (default `8000`).
 - `MAX_CLIENT_ROUTES` – max number of routes retained per client snapshot (default `8`).
 - `MAX_ROUTE_POINTS` – max checkpoints stored per route snapshot (default `80`).
-- `SESSION_TTL_MS` – auto-expiry for dormant sessions (default `6 hours`).
+- `SESSION_TTL_MS` – hard cap for any session lifetime (default `6 hours`).
+- `SESSION_IDLE_TIMEOUT_MS` – room closes if nobody (host or clients) calls in within this window (default `2 minutes`).
 
 ## Client Expectations
 
