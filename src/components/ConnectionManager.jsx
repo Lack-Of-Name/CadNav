@@ -101,7 +101,13 @@ export const ConnectionManager = () => {
     locationIntervalMs,
     updateLocationInterval,
     hostOnline,
-    participantId
+    participantId,
+    socketHealthy,
+    linkDownSince,
+    lastServerContactAt,
+    lastLocationPushAt,
+    lastClientRoutePushAt,
+    pendingLocationQueuedAt
   } = useServerLinkStore();
 
   const [remoteInput, setRemoteInput] = useState('');
@@ -169,31 +175,44 @@ export const ConnectionManager = () => {
   const remotePeersSorted = [...remotePeers].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
   const allPeersSorted = [...peerValues].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
   const connectedPeersCount = remotePeers.filter((peer) => peer.isOnline !== false).length;
+  const formatDuration = (deltaSeconds) => {
+    if (deltaSeconds < 60) {
+      return `${deltaSeconds}s`;
+    }
+    const minutes = Math.floor(deltaSeconds / 60);
+    const seconds = deltaSeconds % 60;
+    if (minutes < 60) {
+      return `${minutes}m${seconds ? ` ${seconds}s` : ''}`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return `${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ''}`;
+  };
+
   const formatLastUpdated = (peer) => {
     if (!peer?.updatedAt) {
       return 'No updates yet';
     }
     const deltaSeconds = Math.max(0, Math.floor((nowTick - peer.updatedAt) / 1000));
-    if (deltaSeconds < 60) {
-      return `Last updated ${deltaSeconds}s ago`;
-    }
-    const minutes = Math.floor(deltaSeconds / 60);
-    const seconds = deltaSeconds % 60;
-    if (minutes < 60) {
-      return `Last updated ${minutes}m${seconds ? ` ${seconds}s` : ''} ago`;
-    }
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    return `Last updated ${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ''} ago`;
+    return `Last updated ${formatDuration(deltaSeconds)} ago`;
+  };
+
+  const formatSince = (timestamp, fallback = 'Never') => {
+    if (!timestamp) return fallback;
+    const deltaSeconds = Math.max(0, Math.floor((nowTick - timestamp) / 1000));
+    return `${formatDuration(deltaSeconds)} ago`;
   };
   const statusBadgeClass =
     connectionStatus === 'connected'
-      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+      ? socketHealthy
+        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+        : 'bg-amber-500/20 text-amber-400 border border-amber-500/50'
       : connectionStatus === 'connecting'
         ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50'
-        : connectionStatus === 'reconnecting'
-          ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50'
-          : 'bg-slate-800 text-slate-400 border border-slate-700';
+        : 'bg-slate-800 text-slate-400 border border-slate-700';
+  const lastLocationLabel = formatSince(lastLocationPushAt, 'Never');
+  const lastRouteLabel = formatSince(lastClientRoutePushAt, 'Never');
+  const pendingQueueLabel = pendingLocationQueuedAt ? formatSince(pendingLocationQueuedAt, 'moments ago') : null;
 
   return (
     <div className="p-4 bg-slate-900 text-slate-100 rounded-lg shadow-md max-w-md mx-auto mt-4 border border-slate-800">
@@ -204,6 +223,7 @@ export const ConnectionManager = () => {
             <div className="flex items-center gap-2">
                 <span className={`px-2 py-1 rounded text-sm font-semibold ${statusBadgeClass}`}>
                 Status: {connectionStatus}
+                {connectionStatus === 'connected' && !socketHealthy ? ' (retrying…)': ''}
                 </span>
                 {connectionStatus === 'connected' && (
                   <span className="text-xs text-slate-400">({connectedPeersCount} active)</span>
@@ -219,6 +239,19 @@ export const ConnectionManager = () => {
         {!hostOnline && role === 'client' && connectionStatus === 'connected' && (
           <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
             HQ link is offline. Your updates stay queued until the host reconnects.
+          </div>
+        )}
+
+        {connectionStatus === 'connected' && !socketHealthy && (
+          <div className="rounded border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            Attempting to reach the relay… last contact {formatSince(lastServerContactAt, 'never')}
+            {linkDownSince && (
+              <>
+                {' (offline for '}
+                {formatDuration(Math.max(0, Math.floor((nowTick - linkDownSince) / 1000)))}
+                {')'}
+              </>
+            )}.
           </div>
         )}
         
@@ -261,6 +294,24 @@ export const ConnectionManager = () => {
               ))}
             </div>
           )
+        )}
+
+        {role === 'client' && connectionStatus === 'connected' && (
+          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
+            <div className="flex items-center justify-between">
+              <span className="uppercase tracking-wide text-[10px] text-slate-500">Location uplink</span>
+              <span className="font-semibold text-slate-100">{lastLocationLabel}</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <span className="uppercase tracking-wide text-[10px] text-slate-500">Route sync</span>
+              <span className="font-semibold text-slate-100">{lastRouteLabel}</span>
+            </div>
+            {!socketHealthy && pendingQueueLabel && (
+              <p className="mt-2 text-[11px] text-amber-200">
+                Latest fix queued {pendingQueueLabel}. We will resend automatically when the link returns.
+              </p>
+            )}
+          </div>
         )}
       </div>
 
@@ -387,12 +438,6 @@ export const ConnectionManager = () => {
              </div>
            )}
 
-           {connectionStatus === 'reconnecting' && (
-             <div className="flex flex-col items-center justify-center py-8 space-y-4">
-               <div className="animate-pulse rounded-full h-8 w-8 border-b-2 border-orange-400"></div>
-               <p className="text-slate-400 text-sm">Trying to relink...</p>
-             </div>
-           )}
         </div>
       )}
 

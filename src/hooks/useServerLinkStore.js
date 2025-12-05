@@ -50,6 +50,9 @@ const DEFAULT_INTERVAL_MS = 10000;
 const HOST_DEFAULT_LABEL = 'HQ';
 const HOST_DEFAULT_COLOR = '#38bdf8';
 const HOST_SESSION_CACHE_KEY = 'p2p-host-session';
+const CLIENT_ROUTE_PUSH_INTERVAL_MS = Number(import.meta.env.VITE_ROUTE_UPDATE_INTERVAL_MS ?? 8000);
+const LOCATION_RESEND_GRACE_MS = Number(import.meta.env.VITE_LOCATION_RESEND_MS ?? 20000);
+const LOCATION_EPSILON = 1e-5;
 
 const colorPalette = [
   '#ef4444',
@@ -80,7 +83,18 @@ const initialState = {
   locationIntervalMs: DEFAULT_INTERVAL_MS,
   selfLabel: '',
   resumeToken: '',
-  hostOnline: true
+  hostOnline: true,
+  socketHealthy: false,
+  linkDownSince: null,
+  lastServerContactAt: 0,
+  latestLocation: null,
+  pendingLocation: null,
+  lastLocationPushAt: 0,
+  pendingLocationQueuedAt: 0,
+  lastClientRouteHash: '',
+  lastClientRoutePushAt: 0,
+  pendingRouteSnapshot: null,
+  pendingRouteHash: ''
 };
 
 const canUseStorage = () => typeof window !== 'undefined' && !!window.localStorage;
@@ -188,10 +202,35 @@ const normalizePeerRoutes = (routes = []) => {
     .filter(Boolean);
 };
 
+const locationsEqual = (a, b) => {
+  if (!a || !b) return false;
+  const latA = Number(a.lat);
+  const latB = Number(b.lat);
+  const lngA = Number(a.lng);
+  const lngB = Number(b.lng);
+  if (!Number.isFinite(latA) || !Number.isFinite(latB) || !Number.isFinite(lngA) || !Number.isFinite(lngB)) {
+    return false;
+  }
+  return Math.abs(latA - latB) < LOCATION_EPSILON && Math.abs(lngA - lngB) < LOCATION_EPSILON;
+};
+
 export const useServerLinkStore = create((set, get) => {
   let reconnectTimer = null;
   let pendingRouteTimer = null;
   let pendingHostResume = false;
+  let flushPendingTransmissions = () => {};
+
+  const markServerContact = () => {
+    const now = Date.now();
+    set({ lastServerContactAt: now, socketHealthy: true, linkDownSince: null });
+  };
+
+  const markLinkDown = () => {
+    set((state) => ({
+      socketHealthy: false,
+      linkDownSince: state.linkDownSince ?? Date.now()
+    }));
+  };
 
   const addLog = (message, type = 'info') => {
     set((state) => ({
@@ -394,11 +433,15 @@ export const useServerLinkStore = create((set, get) => {
       }
     }, delay);
 
-    set({ connectionStatus: 'reconnecting', reconnectAttempts: state.reconnectAttempts + 1 });
-    addLog(state.role === 'host' ? 'Rebinding HQ relay…' : 'Attempting to relink…', 'info');
+    markLinkDown();
+    set({ reconnectAttempts: state.reconnectAttempts + 1 });
+    if (state.role === 'host') {
+      addLog('Rebinding HQ relay…', 'info');
+    }
   };
 
   const handleSocketMessage = (data) => {
+    markServerContact();
     const { type, payload } = data;
     switch (type) {
       case 'session:ready': {
@@ -443,7 +486,10 @@ export const useServerLinkStore = create((set, get) => {
           locationIntervalMs: Number.isFinite(nextInterval) ? nextInterval : DEFAULT_INTERVAL_MS,
           selfLabel: derivedSelfLabel,
           resumeToken: typeof payload.resumeToken === 'string' ? payload.resumeToken : get().resumeToken,
-          hostOnline: true
+          hostOnline: true,
+          socketHealthy: true,
+          linkDownSince: null,
+          lastServerContactAt: Date.now()
         });
         addLog(
           payload.role === 'host'
@@ -458,6 +504,9 @@ export const useServerLinkStore = create((set, get) => {
           persistHostSession(payload.sessionId, payload.resumeToken);
         }
         pendingHostResume = false;
+        queueMicrotask(() => {
+          flushPendingTransmissions();
+        });
         break;
       }
       case 'session:peer-joined': {
@@ -527,6 +576,8 @@ export const useServerLinkStore = create((set, get) => {
       case 'session:peer-routes': {
         const { participantId, routes } = payload ?? {};
         if (!participantId) break;
+        const previousRoutes = get().peers[participantId]?.routes;
+        const previousRouteCount = Array.isArray(previousRoutes) ? previousRoutes.length : 0;
         const normalizedRoutes = normalizePeerRoutes(routes);
         const updatedAt = typeof payload?.updatedAt === 'number' ? payload.updatedAt : Date.now();
         set((state) => ({
@@ -546,7 +597,14 @@ export const useServerLinkStore = create((set, get) => {
           }
         }));
         if (get().role === 'host') {
-          addLog(`${formatParticipantName(participantId)} shared ${normalizedRoutes.length} route(s)`, 'info');
+          if (normalizedRoutes.length === 0 && previousRouteCount === 0) {
+            break;
+          }
+          if (normalizedRoutes.length === 0) {
+            addLog(`${formatParticipantName(participantId)} cleared their routes`, 'info');
+          } else {
+            addLog(`${formatParticipantName(participantId)} shared ${normalizedRoutes.length} route(s)`, 'info');
+          }
         }
         break;
       }
@@ -652,13 +710,17 @@ export const useServerLinkStore = create((set, get) => {
           ? stateBefore.resumeToken
           : '';
     const socket = new WebSocket(SERVER_URL);
-    set((prev) => ({
-      socket,
-      connectionStatus: isReconnect ? 'reconnecting' : 'connecting',
-      role,
-      pendingCode: role === 'client' ? sessionCode : prev.pendingCode,
-      shouldReconnect: role === 'client' || role === 'host'
-    }));
+    set((prev) => {
+      const preserveConnected =
+        isReconnect && role === 'client' && prev.connectionStatus === 'connected';
+      return {
+        socket,
+        connectionStatus: preserveConnected ? 'connected' : 'connecting',
+        role,
+        pendingCode: role === 'client' ? sessionCode : prev.pendingCode,
+        shouldReconnect: role === 'client' || role === 'host'
+      };
+    });
 
     socket.onopen = () => {
       const handshake = buildHandshakePayload(role, sessionCode, {
@@ -680,11 +742,14 @@ export const useServerLinkStore = create((set, get) => {
     };
 
     socket.onerror = () => {
-      addLog('Socket error', 'error');
+      if (get().role === 'host') {
+        addLog('Relay socket hiccup (retrying)…', 'warn');
+      }
     };
 
     socket.onclose = () => {
       if (get().shouldReconnect) {
+        markLinkDown();
         scheduleReconnect();
       } else {
         resetState();
@@ -706,13 +771,18 @@ export const useServerLinkStore = create((set, get) => {
     if (!sent) {
       return false;
     }
+    const routeCount = Array.isArray(snapshot) ? snapshot.length : 0;
     set({
       lastClientRouteHash: hash,
       lastClientRoutePushAt: Date.now(),
       pendingRouteSnapshot: null,
       pendingRouteHash: ''
     });
-    addLog('Shared route snapshot with HQ', 'info');
+    if (pendingRouteTimer) {
+      clearTimeout(pendingRouteTimer);
+      pendingRouteTimer = null;
+    }
+    addLog(`Shared ${routeCount} route${routeCount === 1 ? '' : 's'} with HQ`, 'info');
     return true;
   };
 
@@ -731,12 +801,77 @@ export const useServerLinkStore = create((set, get) => {
     }, delay);
   };
 
+  const transmitLocation = (location, { force = false } = {}) => {
+    if (!location || get().role !== 'client') return;
+    const state = get();
+    const now = Date.now();
+    const lastLocation = state.latestLocation;
+    const intervalMs = Math.max(state.locationIntervalMs ?? DEFAULT_INTERVAL_MS, MIN_INTERVAL_SECONDS * 1000);
+    const resendBudgetMs = Math.max(intervalMs, LOCATION_RESEND_GRACE_MS);
+    const locationChanged = !lastLocation || !locationsEqual(lastLocation, location);
+    const stale = now - state.lastLocationPushAt >= resendBudgetMs;
+
+    if (!force && !locationChanged && !stale) {
+      set({ latestLocation: location });
+      return;
+    }
+
+    const sent = sendPacket({ type: 'participant:location', payload: { location } });
+    if (sent) {
+      set({
+        latestLocation: location,
+        lastLocationPushAt: now,
+        pendingLocation: null,
+        pendingLocationQueuedAt: 0
+      });
+    } else {
+      set({
+        latestLocation: location,
+        pendingLocation: location,
+        pendingLocationQueuedAt: now
+      });
+    }
+  };
+
+  const transmitClientRoutes = (routes, { force = false } = {}) => {
+    if (get().role !== 'client' || !routes) return;
+    const digest = JSON.stringify(routes);
+    const state = get();
+    if (!force && digest === state.lastClientRouteHash) {
+      return;
+    }
+    const sent = pushRouteSnapshot(routes, digest);
+    if (!sent) {
+      set({
+        pendingRouteSnapshot: routes,
+        pendingRouteHash: digest
+      });
+      schedulePendingRouteFlush();
+    }
+  };
+
+  flushPendingTransmissions = () => {
+    const state = get();
+    if (state.role !== 'client') return;
+    if (state.pendingLocation) {
+      transmitLocation(state.pendingLocation, { force: true });
+    } else if (state.latestLocation) {
+      const budget = Math.max(state.locationIntervalMs ?? DEFAULT_INTERVAL_MS, LOCATION_RESEND_GRACE_MS);
+      if (Date.now() - state.lastLocationPushAt >= budget) {
+        transmitLocation(state.latestLocation, { force: true });
+      }
+    }
+    if (state.pendingRouteSnapshot && state.pendingRouteHash) {
+      pushRouteSnapshot(state.pendingRouteSnapshot, state.pendingRouteHash);
+    }
+  };
+
   return {
     ...initialState,
     logs: [],
     startHostSession: () => {
       const state = get();
-      if (state.connectionStatus === 'connecting' || state.connectionStatus === 'reconnecting') {
+      if (state.connectionStatus === 'connecting') {
         return;
       }
       const cached = getCachedHostSession();
@@ -776,9 +911,8 @@ export const useServerLinkStore = create((set, get) => {
       if (!payload) return;
       const sent = sendPacket({ type: 'participant:message', payload: { text: payload } });
     },
-    sendLocation: (location) => {
-      if (!location || get().role !== 'client') return;
-      sendPacket({ type: 'participant:location', payload: { location } });
+    sendLocation: (location, options) => {
+      transmitLocation(location, options);
     },
     shareRoutes: (routes) => {
       if (get().role !== 'host' || !routes) return;
@@ -794,12 +928,8 @@ export const useServerLinkStore = create((set, get) => {
         addLog('Failed to upload route snapshot', 'error');
       }
     },
-    sendClientRoutes: (routes) => {
-      if (get().role !== 'client' || !routes) return;
-      const sent = sendPacket({ type: 'client:routes', payload: { routes } });
-      if (sent) {
-        addLog('Shared route snapshot with HQ', 'info');
-      }
+    sendClientRoutes: (routes, options) => {
+      transmitClientRoutes(routes, options);
     },
     clearLogs: () => set({ logs: [] }),
     updateLocationInterval: (seconds) => {
