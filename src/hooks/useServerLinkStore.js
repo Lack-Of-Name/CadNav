@@ -94,7 +94,8 @@ const initialState = {
   lastClientRouteHash: '',
   lastClientRoutePushAt: 0,
   pendingRouteSnapshot: null,
-  pendingRouteHash: ''
+  pendingRouteHash: '',
+  routeOffers: []
 };
 
 const canUseStorage = () => typeof window !== 'undefined' && !!window.localStorage;
@@ -618,6 +619,26 @@ export const useServerLinkStore = create((set, get) => {
         }
         break;
       }
+      case 'session:route-offer': {
+        const offerId = typeof payload?.offerId === 'string' ? payload.offerId : null;
+        const routes = Array.isArray(payload?.routes) ? payload.routes : [];
+        if (!offerId || routes.length === 0) {
+          break;
+        }
+        const connectVia = payload?.connectVia === 'route' ? 'route' : 'direct';
+        const createdAt = typeof payload?.createdAt === 'number' ? payload.createdAt : Date.now();
+        set((state) => ({
+          routeOffers: [...state.routeOffers.filter((offer) => offer.offerId !== offerId), {
+            offerId,
+            routes,
+            connectVia,
+            fromId: payload?.fromId ?? 'host',
+            createdAt
+          }]
+        }));
+        addLog(`HQ shared ${routes.length} route${routes.length === 1 ? '' : 's'}. Review and accept to import.`, 'info');
+        break;
+      }
       case 'session:host-status': {
         const nextOnline = Boolean(payload?.online);
         const previous = get().hostOnline;
@@ -650,6 +671,28 @@ export const useServerLinkStore = create((set, get) => {
           const senderId = participantId ?? null;
           addLog(`${formatParticipantName(senderId)}: ${text}`, 'message-received');
         }
+        break;
+      }
+      case 'session:route-offer-status': {
+        const participantId = payload?.participantId;
+        const status = payload?.status;
+        const accepted = Boolean(payload?.accepted);
+        const label = participantId ? formatParticipantName(participantId) : 'participant';
+        if (status === 'sent') {
+          addLog(`Queued route push for ${label}`, 'info');
+        } else if (accepted) {
+          addLog(`${label} accepted your route transfer`, 'success');
+        } else {
+          addLog(`${label} declined the shared routes`, 'warn');
+        }
+        break;
+      }
+      case 'session:route-offer-result': {
+        const accepted = Boolean(payload?.accepted);
+        addLog(
+          accepted ? 'Routes imported successfully.' : 'Route transfer canceled.',
+          accepted ? 'success' : 'info'
+        );
         break;
       }
       case 'session:state':
@@ -940,6 +983,70 @@ export const useServerLinkStore = create((set, get) => {
       const intervalMs = clampedSeconds * 1000;
       set({ locationIntervalMs: intervalMs });
       sendPacket({ type: 'host:interval', payload: { intervalMs } });
+    },
+    offerRoutesToClient: (participantId, routes, { connectVia } = {}) => {
+      if (get().role !== 'host') {
+        addLog('Only hosts can push routes to teammates.', 'warn');
+        return { ok: false, error: 'not-host' };
+      }
+      const targetId = typeof participantId === 'string' ? participantId.trim() : '';
+      if (!targetId) {
+        addLog('Select a participant before sending routes.', 'warn');
+        return { ok: false, error: 'missing-target' };
+      }
+      if (!Array.isArray(routes) || routes.length === 0) {
+        addLog('Pick at least one route to share.', 'warn');
+        return { ok: false, error: 'missing-routes' };
+      }
+      const payload = {
+        participantId: targetId,
+        routes,
+        connectVia: connectVia === 'route' ? 'route' : 'direct'
+      };
+      const sent = sendPacket({ type: 'host:route-offer', payload });
+      if (!sent) {
+        addLog('Unable to contact relay to share routes. Try again shortly.', 'error');
+        return { ok: false, error: 'socket-offline' };
+      }
+      addLog(
+        `Dispatching ${routes.length} route${routes.length === 1 ? '' : 's'} to ${formatParticipantName(targetId)}`,
+        'info'
+      );
+      return { ok: true };
+    },
+    acknowledgeRouteOffer: (offerId, accepted) => {
+      if (get().role !== 'client') {
+        return null;
+      }
+      const normalizedId = typeof offerId === 'string' ? offerId : '';
+      if (!normalizedId) {
+        return null;
+      }
+      const state = get();
+      const offer = state.routeOffers.find((entry) => entry.offerId === normalizedId);
+      if (!offer) {
+        return null;
+      }
+      const sent = sendPacket({
+        type: 'client:route-offer-response',
+        payload: { offerId: normalizedId, accepted: Boolean(accepted) }
+      });
+      if (!sent) {
+        addLog('Unable to reach relay. Route response deferred.', 'error');
+        return null;
+      }
+      set((current) => ({
+        routeOffers: current.routeOffers.filter((entry) => entry.offerId !== normalizedId)
+      }));
+      if (accepted) {
+        addLog(
+          `Accepted ${offer.routes.length} route${offer.routes.length === 1 ? '' : 's'} from HQ`,
+          'success'
+        );
+        return { routes: offer.routes, connectVia: offer.connectVia };
+      }
+      addLog('Declined the incoming route set.', 'info');
+      return null;
     }
   };
 });

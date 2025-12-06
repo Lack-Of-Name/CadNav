@@ -28,6 +28,9 @@ const generateSessionCode = customAlphabet(CODE_CHARS, SESSION_CODE_LENGTH);
 const generateLabel = customAlphabet(CODE_CHARS, 3);
 const generateSuffix = customAlphabet(CODE_CHARS, 2);
 const generateResumeToken = () => crypto.randomBytes(24).toString('hex');
+const generateOfferId = () => (typeof crypto.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : crypto.randomBytes(12).toString('hex'));
 
 const colorPalette = [
   '#ef4444',
@@ -275,6 +278,7 @@ const markClientOffline = (session, participantId, reason = 'client-disconnected
   peer.socket = null;
   peer.lastDisconnectAt = Date.now();
   peer.lastContactAt = peer.lastContactAt ?? peer.lastDisconnectAt;
+  dropPendingOffersForParticipant(session, participantId);
   emitPeerStatus(session, peer, { isOnline: false, reason });
 };
 
@@ -282,11 +286,21 @@ const removeClient = (session, participantId, reason = 'client-left') => {
   const peer = session.clients.get(participantId);
   if (!peer) return;
   session.clients.delete(participantId);
+  dropPendingOffersForParticipant(session, participantId);
   sendToHost(session, 'session:peer-left', {
     participantId,
     reason,
     timestamp: Date.now()
   });
+};
+
+const dropPendingOffersForParticipant = (session, participantId) => {
+  if (!session?.routeOffers) return;
+  for (const [offerId, offer] of session.routeOffers.entries()) {
+    if (offer.targetId === participantId) {
+      session.routeOffers.delete(offerId);
+    }
+  }
 };
 
 const pruneSessions = () => {
@@ -345,7 +359,8 @@ const handleHostInit = (socket) => {
     lastActivity: Date.now(),
     colorCursor: 0,
     locationIntervalMs: DEFAULT_UPDATE_INTERVAL_MS,
-    hostResumeToken: hostPeer.resumeToken
+    hostResumeToken: hostPeer.resumeToken,
+    routeOffers: new Map()
   };
 
   sessions.set(sessionId, session);
@@ -387,6 +402,7 @@ const handleHostResume = (socket, payload) => {
   session.host.socket = socket;
   session.host.resumeToken = nextToken;
   session.hostResumeToken = nextToken;
+  session.routeOffers = session.routeOffers ?? new Map();
   session.lastActivity = Date.now();
   attachSessionMeta(socket, session, session.host, 'host');
   notifyClientsHostStatus(session, true, 'host-resumed');
@@ -649,6 +665,114 @@ const handleClientRoutes = (socket, payload) => {
   });
 };
 
+const handleHostRouteOffer = (socket, payload) => {
+  const session = ensureSession(socket);
+  if (!session) {
+    send(socket, 'session:error', { message: 'Not joined to a session.' });
+    return;
+  }
+  if (socket.meta?.role !== 'host') {
+    send(socket, 'session:error', { message: 'Only the host can push routes to clients.' });
+    return;
+  }
+
+  const rawParticipantId = typeof payload?.participantId === 'string' ? payload.participantId.trim() : '';
+  if (!rawParticipantId) {
+    send(socket, 'session:error', { message: 'Missing target participant.' });
+    return;
+  }
+  const targetPeer = session.clients.get(rawParticipantId);
+  if (!targetPeer || !targetPeer.socket) {
+    send(socket, 'session:error', { message: 'Target participant is not online.' });
+    return;
+  }
+
+  const sanitizedRoutes = sanitizeClientRoutes(payload?.routes ?? []);
+  if (sanitizedRoutes.length === 0) {
+    send(socket, 'session:error', { message: 'No valid routes to send.' });
+    return;
+  }
+
+  const connectVia = payload?.connectVia === 'route' ? 'route' : 'direct';
+  const offerId = generateOfferId();
+  const createdAt = Date.now();
+  if (!session.routeOffers) {
+    session.routeOffers = new Map();
+  }
+  session.routeOffers.set(offerId, {
+    id: offerId,
+    targetId: targetPeer.participantId,
+    fromId: socket.meta?.peer?.participantId ?? 'HOST',
+    routes: sanitizedRoutes,
+    connectVia,
+    createdAt
+  });
+
+  send(targetPeer.socket, 'session:route-offer', {
+    offerId,
+    fromId: socket.meta?.peer?.participantId ?? 'HOST',
+    routes: sanitizedRoutes,
+    connectVia,
+    createdAt
+  });
+
+  send(socket, 'session:route-offer-status', {
+    offerId,
+    participantId: targetPeer.participantId,
+    status: 'sent',
+    timestamp: createdAt
+  });
+};
+
+const handleRouteOfferResponse = (socket, payload) => {
+  const session = ensureSession(socket);
+  if (!session) {
+    send(socket, 'session:error', { message: 'Not joined to a session.' });
+    return;
+  }
+  if (socket.meta?.role !== 'client') {
+    send(socket, 'session:error', { message: 'Only clients can respond to route offers.' });
+    return;
+  }
+
+  const offerId = typeof payload?.offerId === 'string' ? payload.offerId.trim() : '';
+  if (!offerId) {
+    send(socket, 'session:error', { message: 'Missing offer ID.' });
+    return;
+  }
+
+  if (!session.routeOffers) {
+    session.routeOffers = new Map();
+  }
+  const offers = session.routeOffers;
+  const offer = offers.get(offerId);
+  const participantId = socket.meta?.peer?.participantId;
+  if (!offer || offer.targetId !== participantId) {
+    send(socket, 'session:error', { message: 'Route offer not found.' });
+    return;
+  }
+
+  offers.delete(offerId);
+  const accepted = Boolean(payload?.accepted);
+  const timestamp = Date.now();
+
+  if (session.host?.socket) {
+    send(session.host.socket, 'session:route-offer-status', {
+      offerId,
+      participantId,
+      accepted,
+      status: accepted ? 'accepted' : 'declined',
+      timestamp
+    });
+  }
+
+  send(socket, 'session:route-offer-result', {
+    offerId,
+    accepted,
+    timestamp
+  });
+};
+
 const handleHostShutdown = (socket) => {
   const session = ensureSession(socket);
   if (!session) return;
@@ -772,8 +896,14 @@ wss.on('connection', (socket) => {
       case 'host:shutdown':
         handleHostShutdown(socket);
         break;
+      case 'host:route-offer':
+        handleHostRouteOffer(socket, data.payload);
+        break;
       case 'client:routes':
         handleClientRoutes(socket, data.payload);
+        break;
+      case 'client:route-offer-response':
+        handleRouteOfferResponse(socket, data.payload);
         break;
       default:
         send(socket, 'session:error', { message: `Unknown message type: ${data.type}` });
