@@ -8,8 +8,6 @@
 ## Field Sync UX
 - [x] Rename the overlay + UI copy away from "P2P"
 - [x] Keep QR + code join flow using the new relay
-- [ ] Surface per-peer freshness (last GPS packet age) in the Connection Manager
-- [ ] Allow HQ to request a forced resync/ping from any field device
 - [ ] Let field devices download the latest host snapshot into their local routes list
 
 ## Offline Maps (Web App Compatible)

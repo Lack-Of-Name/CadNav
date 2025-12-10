@@ -1,35 +1,56 @@
 const EARTH_RADIUS_METERS = 6371000;
+export const MIN_GRID_PRECISION = 1;
+export const MAX_GRID_PRECISION = 5;
 
 const toRadians = (degrees) => (degrees * Math.PI) / 180;
 const toDegrees = (radians) => (radians * 180) / Math.PI;
 const normalizeLongitude = (longitude) => ((longitude + 540) % 360) - 180;
 
 const clampPrecision = (precision) => {
-  if (precision === 3 || precision === 4) {
-    return precision;
+  const numeric = Number(precision);
+  if (!Number.isFinite(numeric)) {
+    throw new Error('Grid precision must be a number.');
   }
-  throw new Error('Unsupported grid precision. Use 3 or 4 figure references.');
+  if (numeric < MIN_GRID_PRECISION || numeric > MAX_GRID_PRECISION) {
+    throw new Error(
+      `Grid precision must be between ${MIN_GRID_PRECISION} and ${MAX_GRID_PRECISION} digits.`
+    );
+  }
+  return Math.round(numeric);
+};
+
+const parseGridDigits = (value, precisionHint) => {
+  if (value == null) {
+    throw new Error('Grid reference digits are required.');
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    throw new Error('Grid reference digits are required.');
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error('Grid references must contain digits only.');
+  }
+  const resolvedPrecision = clampPrecision(precisionHint ?? trimmed.length);
+  if (trimmed.length > resolvedPrecision) {
+    throw new Error(`Expected ${resolvedPrecision} digits for this precision setting.`);
+  }
+  const padded = trimmed.length < resolvedPrecision
+    ? trimmed.padStart(resolvedPrecision, '0')
+    : trimmed;
+  return {
+    value: parseInt(padded, 10),
+    precision: resolvedPrecision
+  };
 };
 
 export const precisionToUnitMeters = (precision) => {
   const value = clampPrecision(precision);
-  if (value === 3) {
-    return 100; // 3-figure (6-digit) references resolve to 100 m squares
-  }
-  return 10; // 4-figure (8-digit) references resolve to 10 m squares
+  return 10 ** (5 - value);
 };
 
 export const normaliseGridDigits = (value, precision) => {
-  if (value == null) return null;
-  const trimmed = String(value).trim();
-  if (!trimmed) return null;
-  if (!/^\d+$/.test(trimmed)) {
-    throw new Error('Grid references must contain digits only.');
-  }
-  if (trimmed.length !== precision) {
-    throw new Error(`Expected ${precision} digits for this precision setting.`);
-  }
-  return parseInt(trimmed, 10);
+  const parsed = parseGridDigits(value, precision);
+  return parsed.value;
 };
 
 const projectOffset = ({ lat, lng }, eastOffset, northOffset) => {
@@ -96,18 +117,33 @@ export const gridReferenceToLatLng = ({
     throw new Error('Set a grid origin reference first.');
   }
 
-  const resolvedPrecision = clampPrecision(
-    precision ?? originReference.precision ?? targetReference?.precision ?? 3
-  );
+  if (!targetReference) {
+    throw new Error('Provide a target grid reference to convert.');
+  }
 
-  const originEast = normaliseGridDigits(originReference.easting, resolvedPrecision);
-  const originNorth = normaliseGridDigits(originReference.northing, resolvedPrecision);
-  const targetEast = normaliseGridDigits(targetReference.easting, resolvedPrecision);
-  const targetNorth = normaliseGridDigits(targetReference.northing, resolvedPrecision);
+  const originPrecisionHint = originReference.precision ?? precision ?? 3;
+  const originEast = parseGridDigits(originReference.easting, originPrecisionHint);
+  const originNorth = parseGridDigits(originReference.northing, originPrecisionHint);
+  if (originEast.precision !== originNorth.precision) {
+    throw new Error('Origin easting and northing must use the same precision.');
+  }
 
-  const unitMeters = precisionToUnitMeters(resolvedPrecision);
-  const eastOffset = (targetEast - originEast) * unitMeters;
-  const northOffset = (targetNorth - originNorth) * unitMeters;
+  const targetPrecisionHint = targetReference.precision ?? precision ?? null;
+  const targetEast = parseGridDigits(targetReference.easting, targetPrecisionHint ?? undefined);
+  const targetNorth = parseGridDigits(targetReference.northing, targetPrecisionHint ?? undefined);
+  if (targetEast.precision !== targetNorth.precision) {
+    throw new Error('Target easting and northing must use the same number of digits.');
+  }
+
+  const originUnit = precisionToUnitMeters(originEast.precision);
+  const targetUnit = precisionToUnitMeters(targetEast.precision);
+  const originEastMeters = originEast.value * originUnit;
+  const originNorthMeters = originNorth.value * originUnit;
+  const targetEastMeters = targetEast.value * targetUnit;
+  const targetNorthMeters = targetNorth.value * targetUnit;
+
+  const eastOffset = targetEastMeters - originEastMeters;
+  const northOffset = targetNorthMeters - originNorthMeters;
 
   return projectOffset(origin, eastOffset, northOffset);
 };

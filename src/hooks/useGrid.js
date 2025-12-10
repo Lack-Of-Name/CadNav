@@ -1,6 +1,16 @@
 import { create } from 'zustand';
+import { MIN_GRID_PRECISION, MAX_GRID_PRECISION } from '../utils/grid.js';
 
-const clampPrecision = (precision) => (precision === 4 ? 4 : 3);
+const clampPrecision = (precision) => {
+  const numeric = Number(precision);
+  if (!Number.isFinite(numeric)) {
+    return MIN_GRID_PRECISION;
+  }
+  const rounded = Math.round(numeric);
+  if (rounded < MIN_GRID_PRECISION) return MIN_GRID_PRECISION;
+  if (rounded > MAX_GRID_PRECISION) return MAX_GRID_PRECISION;
+  return rounded;
+};
 
 const initialState = {
   origin: null,
@@ -15,9 +25,9 @@ export const useGridStore = create((set) => ({
       const resolved = clampPrecision(precision);
       return {
         precision: resolved,
-      originReference: state.originReference
-        ? { ...state.originReference, precision: resolved }
-        : null
+        originReference: state.originReference
+          ? { ...state.originReference, precision: resolved }
+          : null
       };
     }),
   setOrigin: (origin) => set({ origin }),

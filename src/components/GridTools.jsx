@@ -5,9 +5,29 @@ import {
   destinationFromBearing,
   gridReferenceToLatLng,
   latLngToGridReference,
-  normaliseGridDigits,
-  precisionToUnitMeters
+  precisionToUnitMeters,
+  MIN_GRID_PRECISION,
+  MAX_GRID_PRECISION
 } from '../utils/grid.js';
+
+const DIGITS_ONLY = /^\d+$/;
+
+const parseDigitsInput = (value, label) => {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) {
+    throw new Error(`Enter ${label}.`);
+  }
+  if (!DIGITS_ONLY.test(trimmed)) {
+    throw new Error(`${label} must contain digits only.`);
+  }
+  const length = trimmed.length;
+  if (length < MIN_GRID_PRECISION || length > MAX_GRID_PRECISION) {
+    throw new Error(
+      `${label} must be between ${MIN_GRID_PRECISION} and ${MAX_GRID_PRECISION} digits.`
+    );
+  }
+  return { digits: trimmed, length };
+};
 
 const formatLatLng = (value) => (value != null ? value.toFixed(6) : '—');
 const formatMeters = (value) => {
@@ -59,6 +79,14 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
   const [bearingMetadata, setBearingMetadata] = useState(null);
   const [activeTab, setActiveTab] = useState('origin');
   const [showHelp, setShowHelp] = useState(false);
+  const [originSource, setOriginSource] = useState('user');
+  const placeholderDigits = useMemo(
+    () => Math.min(Math.max(precision ?? MIN_GRID_PRECISION, 3), MAX_GRID_PRECISION),
+    [precision]
+  );
+
+  const buildPlaceholder = (symbol) =>
+    `e.g. ${symbol.repeat(placeholderDigits || MIN_GRID_PRECISION)}`;
 
   useEffect(() => {
     if (originReference) {
@@ -100,45 +128,34 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
   const bearingDegreesUsed = bearingMetadata?.bearingDegrees ?? null;
   const bearingMilsUsed = bearingDegreesUsed != null ? (bearingDegreesUsed * 6400) / 360 : null;
 
-  const handleSetOrigin = () => {
-    // 1. Determine Location (GPS preferred, then Selected)
-    let locationToUse = userLocation;
-    if (!locationToUse) {
-      if (selectedPosition) {
-        locationToUse = selectedPosition;
-      } else {
-        setErrorMessage('Waiting for GPS location (or select a point on the map).');
-        return;
+  const resolveOriginLocation = () => {
+    if (originSource === 'user') {
+      if (!userLocation) {
+        throw new Error('Waiting for GPS fix. Try again once your location is available.');
       }
+      return userLocation;
     }
-
-    // 2. Validate Grid Reference Input
-    const e = originEast.trim();
-    const n = originNorth.trim();
-
-    if (!e || !n) {
-      setErrorMessage('Enter grid reference digits.');
-      return;
+    if (originSource === 'selected') {
+      if (!selectedPosition) {
+        throw new Error('Select a marker on the map to use as the origin.');
+      }
+      return selectedPosition;
     }
+    throw new Error('Choose a valid origin source.');
+  };
 
-    if (e.length !== n.length) {
-      setErrorMessage('Easting and Northing must have same number of digits.');
-      return;
-    }
-
-    // 3. Auto-detect Precision
-    let newPrecision = 3;
-    if (e.length === 3) newPrecision = 3;
-    else if (e.length === 4) newPrecision = 4;
-    else {
-      setErrorMessage('Grid ref must be 3 or 4 digits (e.g. 123 456).');
-      return;
-    }
-
-    // 4. Commit
+  const handleSetOrigin = () => {
     try {
-      const easting = Number(e);
-      const northing = Number(n);
+      const locationToUse = resolveOriginLocation();
+      const eastResult = parseDigitsInput(originEast, 'Easting');
+      const northResult = parseDigitsInput(originNorth, 'Northing');
+      if (eastResult.length !== northResult.length) {
+        throw new Error('Easting and Northing must have the same number of digits.');
+      }
+      const newPrecision = eastResult.length;
+
+      const easting = Number(eastResult.digits);
+      const northing = Number(northResult.digits);
       
       if (Number.isNaN(easting) || Number.isNaN(northing)) {
         throw new Error('Grid reference must be numbers.');
@@ -215,23 +232,25 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
   };
 
   const resolveGridReference = () => {
-    if (!targetEast || !targetNorth) {
-      setErrorMessage('Enter both easting and northing for the grid reference.');
-      return;
-    }
     try {
+      const eastResult = parseDigitsInput(targetEast, 'Easting');
+      const northResult = parseDigitsInput(targetNorth, 'Northing');
+      if (eastResult.length !== northResult.length) {
+        throw new Error('Easting and Northing must have the same number of digits.');
+      }
+      const detectedPrecision = eastResult.length;
       const candidate = gridReferenceToLatLng({
         origin,
         originReference,
         targetReference: {
-          easting: targetEast,
-          northing: targetNorth,
-          precision
+          easting: eastResult.digits,
+          northing: northResult.digits,
+          precision: detectedPrecision
         },
-        precision
+        precision: detectedPrecision
       });
       setResolvedLocation(candidate);
-      setStatusMessage('Grid reference resolved.');
+      setStatusMessage(`Grid reference resolved (${detectedPrecision}-figure input).`);
       setErrorMessage(null);
     } catch (error) {
       setResolvedLocation(null);
@@ -257,6 +276,7 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
     setTargetNorth('');
     setResolvedLocation(null);
     setBearingSource('user');
+    setOriginSource('user');
     setBearingValue('');
     setBearingUnitInput('degrees');
     setDistanceInput('');
@@ -358,6 +378,40 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
           )}
 
           <div className="flex flex-col gap-3">
+            <div>
+              <span className="text-[10px] uppercase tracking-wide text-slate-400">Location Source</span>
+              <div className="mt-1 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOriginSource('user')}
+                  className={`flex-1 rounded-md border py-2 text-[11px] font-semibold transition ${
+                    originSource === 'user'
+                      ? 'border-sky-500 bg-sky-500/10 text-sky-200'
+                      : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                  }`}
+                >
+                  My Location
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOriginSource('selected')}
+                  className={`flex-1 rounded-md border py-2 text-[11px] font-semibold transition ${
+                    originSource === 'selected'
+                      ? 'border-sky-500 bg-sky-500/10 text-sky-200'
+                      : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                  }`}
+                >
+                  Selected Marker
+                </button>
+              </div>
+              {originSource === 'user' && !userLocation && (
+                <p className="mt-1 text-[10px] text-rose-400">Waiting for GPS fix…</p>
+              )}
+              {originSource === 'selected' && !selectedPosition && (
+                <p className="mt-1 text-[10px] text-rose-400">Select a marker on the map first.</p>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -445,7 +499,7 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
                 value={targetEast}
                 onChange={(event) => setTargetEast(event.target.value)}
                 className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
-                placeholder={'e.g. '.concat('2'.repeat(precision))}
+                placeholder={buildPlaceholder('2')}
               />
             </label>
             <label className="flex flex-col gap-1">
@@ -454,7 +508,7 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
                 value={targetNorth}
                 onChange={(event) => setTargetNorth(event.target.value)}
                 className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
-                placeholder={'e.g. '.concat('3'.repeat(precision))}
+                placeholder={buildPlaceholder('3')}
               />
             </label>
           </div>
@@ -467,7 +521,7 @@ const GridTools = ({ userLocation, selectedPosition, onPreviewLocationChange }) 
               Preview location
             </button>
             <span className="text-[11px] text-slate-400">
-              1 digit = {unitMeters} m offset
+              Origin precision: 1 digit = {unitMeters} m
             </span>
           </div>
           {resolvedLocation && (

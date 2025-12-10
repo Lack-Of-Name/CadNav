@@ -34,6 +34,15 @@ const MapPage = () => {
     }
   }, [activeRouteId, compassRouteId]);
 
+  useEffect(() => {
+    if (!compassRouteId) return;
+    const stillExists = routes.some((route) => route.id === compassRouteId);
+    if (!stillExists) {
+      const fallbackRoute = routes.find((route) => route.id === activeRouteId) || routes[0] || null;
+      setCompassRouteId(fallbackRoute ? fallbackRoute.id : null);
+    }
+  }, [routes, compassRouteId, activeRouteId]);
+
   const targetEntries = useMemo(() => {
     const targetRouteId = compassRouteId || activeRouteId;
     const route = routes.find(r => r.id === targetRouteId);
@@ -50,12 +59,27 @@ const MapPage = () => {
     }).filter(Boolean);
   }, [compassRouteId, activeRouteId, routes, checkpointMap]);
 
-  const selectedTarget = useMemo(
-    () => targetEntries.find((item) => item.id === selectedId) ?? null,
-    [targetEntries, selectedId]
-  );
+  const selectedTarget = useMemo(() => {
+    const routeMatch = targetEntries.find((item) => item.id === selectedId);
+    if (routeMatch) {
+      return routeMatch;
+    }
+    if (selectedId && checkpointMap[selectedId]) {
+      const checkpoint = checkpointMap[selectedId];
+      return checkpoint?.position
+        ? {
+            id: checkpoint.id,
+            label: checkpoint.name || 'Point',
+            position: checkpoint.position
+          }
+        : null;
+    }
+    return null;
+  }, [targetEntries, selectedId, checkpointMap]);
 
-  const selectedPosition = selectedTarget?.position ?? null;
+  const selectedPosition = selectedId && checkpointMap[selectedId]?.position
+    ? checkpointMap[selectedId].position
+    : null;
 
   const {
     heading,
